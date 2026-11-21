@@ -1,36 +1,34 @@
 ---
 gsd_state_version: "1.0"
-status: Awaiting next milestone
-stopped_at: Phase 3 complete and verified
-last_updated: "2026-11-18T15:33:48.626Z"
-last_activity: 2026-11-18
-last_activity_desc: Milestone v1.0 completed and archived
-state_head: f59b3221fb7f72d7cd615b6a8d78570f259ba824
+milestone: v2.0
+milestone_name: Professional Studio
+status: planning
+last_updated: "2026-11-21T03:42:37.740Z"
+last_activity: 2026-11-21
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 12
-  completed_plans: 12
-  percent: 100
-current_phase: 03
-current_phase_name: Backend API, High-Res Export & Git-Driven Deployment
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-16)
+See: .planning/PROJECT.md (updated 2026-11-21)
 
 **Core value:** Instant, real-time retro visual transformations and high-fidelity media export across web and video formats, operating reliably at $0/month on free-tier cloud infrastructure.
-**Current focus:** All 3 Milestone Phases Complete
+**Current focus:** Defining v2.0 Professional Studio requirements
 
 ## Current Position
 
-Phase: Milestone v1.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-11-18 — Milestone v1.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-11-21 — Milestone v2.0 started
+
 
 ## Performance Metrics
 
@@ -89,6 +87,9 @@ Recent decisions affecting current work:
 - [Phase 01]: FakeTerminal fakes kept as duck-typed run() sinks; test_cleanup/test_playback audited with no edits needed (no cursor-escape or ANSI-clear assertions existed to prune)
 - [Phase 01]: Task 2 was verification-only with no commit: pytest 387 passed, mypy Success, ruff All checks passed, pyproject.toml audited accurate with zero metadata churn
 - [Phase 01 P03]: Dual-mode _StdoutSink + TTY aspect-fit sizing closed UAT Gap 1 without restoring src/terminal.py or adding dependencies (stdlib shutil only)
+- [v2.0]: Consolidated the eight-phase wishlist into four roadmap phases by engineering concern; all content retained, only ordering changed.
+- [v2.0]: Terminal player retired as a product surface; Python render loop becomes test-only and FFplay audio stays test-side.
+- [v2.0]: Phase 1 gates on behavioral verification (cancellation, media lifecycle, upload security, browser workflows), not compilation.
 
 ### Pending Todos
 
@@ -108,10 +109,10 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-18T10:47:13.645Z
-Stopped at: Phase 3 architecture frozen & ready for planning
-Resume file: .planning/phases/03-backend-api-high-res-export-git-driven-deployment/03-CONTEXT.md
+Last session: 2026-11-21 — Milestone v2.0 started
+Stopped at: Gathered milestone goals and confirmed four-phase structure
+Resume file: —
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Define v2.0 requirements, then create the four-phase roadmap

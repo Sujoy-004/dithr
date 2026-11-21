@@ -2,11 +2,24 @@
 
 ## What This Is
 
-A modern, high-performance browser-based retro visual effects and ASCII studio for images, videos, and live webcam streams. It delivers instant, GPU-accelerated client-side previews (ASCII, dithering, halftone, CRT/VHS, matrix rain, and color grading) alongside a Python FastAPI backend for high-fidelity FFmpeg-driven exports and processing. Built for digital artists, designers, and terminal enthusiasts seeking versatile retro graphics in a responsive studio interface.
+A modern, high-performance browser-based retro visual effects and ASCII studio for images, videos, and live webcam streams. It delivers instant, GPU-accelerated client-side previews (ASCII, dithering, halftone, CRT/VHS, matrix rain, and color grading) alongside a Python FastAPI backend for high-fidelity FFmpeg-driven exports and processing. Built for digital artists, designers, and terminal enthusiasts seeking versatile retro graphics in a responsive studio interface. As of v2.0, the browser Studio is the sole end-user product surface; the Python terminal player is retired.
 
 ## Core Value
 
 Instant, real-time retro visual transformations and high-fidelity media export across web and video formats, operating reliably at $0/month on free-tier cloud infrastructure.
+
+## Current Milestone: v2.0 Professional Studio
+
+**Goal:** Turn the shipped v1.0 studio into a dependable, professional creative application — retire the terminal player as a product surface, make performance measurable, rebuild rendering as a composable engine, add real editing and export workflows, then make work durable and shareable.
+
+**Target features:**
+
+- **Phase 1 — Reliability & Performance Foundation**: P0 security and lifecycle fixes (upload hardening, export cancellation, recorder/audio synchronization, GPU resource cleanup, backend lifecycle), frontend unit tests + browser E2E + API contract verification, terminal player retirement, capability detection, intelligent render scheduling, GPU memory monitoring, pipeline caching, and a benchmark suite.
+- **Phase 2 — Shader Engine 2.0 & Advanced FX**: composable multi-effect pipeline first, then corrected existing shader algorithms, RGB separation / color grading / masking, advanced CRT/VHS/dithering, audio-reactive and procedural effects, then 3D ASCII and AI assistance.
+- **Phase 3 — Creative Workspace & Export Studio**: non-destructive editing history, undo/redo, temporary session recovery, layers, keyframes, before/after comparison, preview-faithful production exports, and an export queue.
+- **Phase 4 — Persistence, Community & Distribution**: permanent named projects, IndexedDB storage, autosave, optional Neon accounts and cloud sync, preset marketplace, share links, and embeddable distribution.
+
+**Phase completion gates:** A phase is complete only when its observable behavior is verified by automated tests — never because the code compiles. Phase 1 specifically requires passing coverage for export cancellation, media lifecycle, upload security, and browser workflows.
 
 ## Requirements
 
@@ -27,18 +40,19 @@ Instant, real-time retro visual transformations and high-fidelity media export a
 - ✓ Low-Memory Server Transcoding: Bounded chunk sequencer, Web Audio graph persistence, DPI decoupling (1080p/720p), and low-memory FFmpeg video/GIF transcode (<137MB RSS) — v1.0 (`src/api/transcode.py`)
 - ✓ Git-Driven $0/Month Infrastructure: Cloudflare Pages edge hosting (`wrangler.toml`), Render Python Web Service (`render.yaml`), and Neon PostgreSQL schema scaffolding (`docs/database-schema.sql`) — v1.0
 
-### Active (Next Milestone Candidates)
+### Active (v2.0 Professional Studio)
 
-- [ ] **PERSIST-01**: User accounts and project workspace persistence via Neon Serverless PostgreSQL.
-- [ ] **PERSIST-02**: Community preset sharing gallery allowing artists to publish and clone effect recipes.
-- [ ] **PERSIST-03**: Standalone Three.js 3D embeddable HTML export package.
-- [ ] **PERSIST-04**: Extended retro shader packs (Voronoi crystallization, Audio-reactive scanlines, Pixel sorting enhancements).
+- [ ] **Phase 1 — Reliability & Performance Foundation**: Every existing feature is dependable, measured, and covered by frontend unit, browser E2E, and API contract tests; the terminal player is retired from the product surface.
+- [ ] **Phase 2 — Shader Engine 2.0 & Advanced FX**: A composable effect pipeline built on corrected algorithms, with RGB separation, color grading, masking, advanced retro effects, audio-reactive/procedural effects, 3D ASCII, and AI assistance.
+- [ ] **Phase 3 — Creative Workspace & Export Studio**: Non-destructive editing history, undo/redo, temporary session recovery, layers, keyframes, and preview-faithful production exports.
+- [ ] **Phase 4 — Persistence, Community & Distribution**: Permanent named projects, IndexedDB storage, autosave, optional accounts and cloud sync, preset marketplace, share links, and embeddable distribution.
 
 ### Out of Scope
 
+- Terminal player as an end-user product — Retired in v2.0. The browser Studio is the only supported product surface; the Python render loop survives only where the automated test suite requires it, and FFplay audio is test-only.
 - Terminal interactive playback engine — Pivoted entirely to Web platform; terminal-only components (`src/terminal.py`) archived.
 - Proprietary Grainrad source code or branding duplication — Clean-room functional reproduction of retro shader and export features.
-- Mandatory user auth or paid cloud databases for v1 — Stateless utility first to eliminate cost and setup barriers.
+- Mandatory user auth or paid cloud databases — Anonymous use remains fully supported. v2.0 adds optional accounts, never a login wall; all persistence targets free-tier storage.
 - Dedicated cloud GPU instances — Real-time processing runs on client hardware (WebGPU/Canvas), exports run on free CPU compute.
 - Unbounded video file uploads — Enforced 60-second video length limit on video exports to guarantee stability within 512MB RAM.
 
@@ -47,16 +61,20 @@ Instant, real-time retro visual transformations and high-fidelity media export a
 - Shipped Milestone v1.0 with 18,162 lines of code across Python (12,780 LOC) and TypeScript (5,382 LOC).
 - Frontend: React 19, Vite 8, Tailwind CSS v4, Three.js WebGPU / TSL, deployed on Cloudflare Pages (`https://rgb-ascii.pages.dev`).
 - Backend: Python 3.10+, FastAPI, Uvicorn, FFmpeg, deployed on Render Free Web Service (`render.yaml`).
-- Database Scaffolding: Neon Serverless PostgreSQL schema (`docs/database-schema.sql`) prepared for v2 user and preset persistence.
+- Database Scaffolding: Neon Serverless PostgreSQL schema (`docs/database-schema.sql`) prepared for v2.0 project and preset persistence.
 - Complete suite of 435 automated tests passing with zero regressions, strict type safety (`mypy`), and fast linting (`ruff`).
+- v2.0 consolidates the eight-phase wishlist into four roadmap phases by engineering concern: reliability + performance, rendering engine + advanced FX, editing + export, persistence + community. All wishlist content is retained; only ordering changes.
+- Verified v1.0 gaps driving Phase 1: `POST /api/export/{id}/source-audio` has no rate limit, size ceiling, or safe extension handling; chunk `chunk_index` is never validated for order or idempotency; cancellation flips job state without stopping the FFmpeg task; client WebM recording captures video only; client GIF recording repeats one canvas frame instead of re-rendering; `web/` has no test runner at all.
 
 ## Constraints
 
 - **Budget**: $0/month strict target across all cloud services (Cloudflare Pages free tier, Render free tier web service, Neon free tier).
 - **Tech Stack (Frontend)**: Modern SPA (Vite / React / TypeScript / Tailwind CSS / WebGPU / Canvas) deployed to Cloudflare Pages.
 - **Tech Stack (Backend)**: Python 3.10+ with FastAPI, Uvicorn, and FFmpeg deployed to Render via `render.yaml`.
+- **Product Surface**: Browser Studio is the only end-user surface as of v2.0. Python terminal playback is retired; the render loop is test-only and FFplay audio is never a production dependency.
 - **UI Approval Gate**: All Stitch MCP visual designs must be reviewed and explicitly approved by the user before frontend code implementation begins.
-- **Hermetic Testing**: Comprehensive unit and integration test coverage maintained throughout modernization and expansion.
+- **Hermetic Testing**: Comprehensive unit and integration test coverage maintained throughout modernization and expansion. Browser E2E and API contract tests are required for unreliable surfaces, not optional.
+- **Phase Completion**: Behavioral verification is mandatory — a phase cannot close on compile success alone.
 
 ## Key Decisions
 
@@ -68,6 +86,9 @@ Instant, real-time retro visual transformations and high-fidelity media export a
 | Git-Driven Deployment (`render.yaml` & `wrangler.toml`) | Infrastructure-as-code enables reproducible single-push deployments to Cloudflare and Render | ✓ Good (Automated deployment directly from main branch) |
 | Client-Side WebGPU Shaders with TSL | Next-generation WebGPU performance with clean WebGL2 fallback via Three.js node system | ✓ Good (60 FPS rendering across WebGPU and WebGL2 hardware) |
 | DPI Decoupling & Bounded Backpressure | Protects export render quality from viewport zoom and client memory bloat | ✓ Good (Predictable 1080p/720p output with max 5 chunks in flight) |
+| Consolidate v2.0 into four phases | Retains all eight wishlist areas while reducing milestone overhead; pairs work by engineering concern and dependency order | — Pending |
+| Retire terminal player as a product | Web Studio is the sole product; terminal playback adds maintenance surface and FFplay runtime dependencies with no user base | — Pending |
+| Performance foundation before engine rebuild | Benchmarks, render scheduling, and capability detection must exist before Phases 2–3 so regressions are detectable rather than assumed | — Pending |
 
 ## Evolution
 
@@ -87,4 +108,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-18 after v1.0 milestone*
+*Last updated: 2026-11-21 after starting v2.0 milestone*
