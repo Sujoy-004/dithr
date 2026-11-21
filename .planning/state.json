@@ -1,28 +1,12 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": null,
-  "phases": [
-    {
-      "number": "1",
-      "name": "Codebase Modernization & Core Extraction",
-      "status": "complete"
-    },
-    {
-      "number": "2",
-      "name": "Studio UI/UX Redesign & Client Shader Pipeline",
-      "status": "complete"
-    },
-    {
-      "number": "3",
-      "name": "Backend API, High-Res Export & Deployment",
-      "status": "complete"
-    }
-  ],
+  "milestone": "v2.0",
+  "phases": [],
   "next": {
-    "command": "/gsd-progress",
-    "label": "Show progress",
-    "reason": "Unsure of state — showing progress"
+    "command": "/gsd-discuss-phase",
+    "label": "Discuss the first phase",
+    "reason": "Project initialized — plan your first phase"
   },
-  "updated_at": "2026-11-18T15:33:48.752Z"
+  "updated_at": "2026-11-21T03:42:37.760Z"
 }
