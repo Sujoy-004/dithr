@@ -1,7 +1,7 @@
 # Stack Research
 
-**Domain:** Browser-Based GPU Visual Effects & ASCII Studio with Python Media Transcoding Backend
-**Researched:** 2026-11-16
+**Domain:** Browser-Based Real-Time Visual Effects & Media Processing Studio
+**Researched:** 2026-11-21
 **Confidence:** HIGH
 
 ## Recommended Stack
@@ -10,86 +10,104 @@
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| Vite + React | ^5.4 / ^18.3 | Frontend SPA Framework | Ultra-fast HMR, lightweight bundle size, clean reactive state management for real-time slider controls |
-| TypeScript | ^5.6 | Client & API Type Safety | Eliminates runtime interface drift between UI controls, shader uniforms, and export endpoints |
-| WebGPU API + WebGL2 Fallback | Modern Standard | Real-Time GPU Shaders | Hardware-accelerated 60fps retro transformations (ASCII, dithering, halftone, VHS) running entirely on client GPU with zero cloud compute cost |
-| Tailwind CSS | ^3.4 or ^4.0 | Studio Interface Styling | Rapid, consistent styling for dark-mode studio panels, collapsible drawers, and responsive toolbars |
-| FastAPI + Uvicorn | ^0.115 / ^0.32 | Python Backend API | High-throughput async web server, native Pydantic validation, seamless integration with existing Python codebase |
-| FFmpeg | ^6.0+ | Server-Side Media Transcoding | Battle-tested industry standard for decoding, scaling, audio extraction, and encoding high-quality MP4/GIF exports |
+| **Three.js (WebGPU / TSL)** | `^0.187.0` | Real-time GPU shader pipeline, multi-pass compositing, post-processing | Already established in v1.0. Three.js Transpiler / Shading Language (`three/tsl`) and `three/webgpu` provide vendor-agnostic WebGPU compute/fragment shaders with automatic, seamless WebGL2 fallback. Enables modular node-based pass composition and uniform reactivity. |
+| **Vitest** | `^3.0.7` | Frontend unit & component testing for `web/` | Native Vite integration, instant HMR test execution, ESM first-class support, TypeScript zero-config, compatible with `@testing-library/react`. Replaces missing frontend test runner. |
+| **Playwright** | `^1.50.1` | Headless browser End-to-End (E2E) testing | Cross-browser automation with Chromium WebGPU testing flags (`--enable-unsafe-webgpu`, `--use-gl=angle`). Tests canvas rendering, drag-and-drop ingestion, media export workflows, and keyboard/dialog accessibility. |
+| **idb** | `^8.0.2` | Minimal IndexedDB Promise wrapper | Lightweight (~1.1KB gzip) idiomatic Promise-based wrapper by Jake Archibald over native browser IndexedDB. Zero dependencies, supports structured cloning, schema version transitions, and transaction management without heavyweight ORM overhead. |
+| **Web Audio API** | Native Web Platform | Real-time audio analysis (FFT), track decoding, and recorder stream routing | Native browser capability (`AudioContext`, `AnalyserNode`, `MediaStreamAudioDestinationNode`). Zero runtime bundle footprint. Decoupled frequency/time-domain data extraction for audio-reactive shader uniforms and audio-video muxing. |
+| **FastAPI** | `^0.135.2` | High-throughput asynchronous backend microservice | High-performance Python 3.10+ async web framework on Uvicorn. Superintends FFmpeg transcoding, Turnstile token checks, streaming chunk assembly, and cancellation signals under Render free-tier constraints (<512MB RAM). |
+| **Schemathesis** | `^3.39.11` | Property-based API contract testing | Automatically validates backend FastAPI OpenAPI contracts against boundary inputs, malformed multipart chunks, and unauthorized headers. |
+| **@neondatabase/serverless** | `^0.10.4` | Serverless PostgreSQL driver for cloud backup & presets | Connection-pooling WebSocket/HTTP driver designed for edge runtimes (Cloudflare Pages) and serverless backends connecting to Neon Serverless PostgreSQL ($0/month tier). |
 
 ### Supporting Libraries
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| Zustand | ^4.5 | Client State Management | Managing effect parameters, active presets, zoom state, and export queues without React re-render lag |
-| Lucide React | ^0.450 | UI Iconography | Crisp, lightweight icons for toolbar tools, settings sliders, and export format buttons |
-| Pydantic | ^2.9 | Request/Response Validation | Validating export jobs, effect options, and video metadata contracts in FastAPI |
-| python-multipart | ^0.0.12 | Streaming File Uploads | Handling chunked file uploads (video and image) to FastAPI without memory blowup |
-| Neon Serverless Driver / asyncpg | ^0.29 | Relational Persistence (Future) | Serverless PostgreSQL connection over WebSockets or pooling, ready when user persistence is enabled |
+| **@testing-library/react** | `^16.2.0` | React component integration tests | Testing UI components (HUD, drawers, modals, timeline) in Vitest with user-event simulations. |
+| **happy-dom** | `^17.1.6` | Lightweight DOM environment for Vitest | Faster than JSDOM for non-canvas React DOM tests in unit suites. |
+| **lz-string** | `^1.5.0` | Fast URL-safe string compression | Compressing preset recipes and project shader state into shareable URL hash links (`#preset=...`) without database hits. |
+| **PyJWT** | `^2.10.1` | Stateless cryptographic token signing & decoding | Optional anonymous/user account authentication tokens for cloud sync without session state. |
+| **psutil** | `^7.2.2` | Process monitoring & memory RSS tracking | Server-side memory guarding (<137MB RSS) and process group cleanup during transcode cancellation. |
 
-### Development & Deployment Tools
+### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| Cloudflare Wrangler | Edge Deployment (`wrangler.toml`) | Deploys static SPA to Cloudflare Pages for unlimited bandwidth and zero hosting costs |
-| Render Blueprint | Backend PaaS (`render.yaml`) | Git-driven infrastructure definition for Render free-tier web service running FastAPI and FFmpeg |
-| Ruff & Mypy | Python Quality & Typing | Enforces strict syntax, linting, and typing on the modernized Python backend |
-| Pytest | Python Automated Testing | Verifies backend endpoints, FFmpeg transcoding workflows, and error handling |
+| **GoogleChrome/modern-web-guidance** | Platform pattern compliance & legacy scanner | Run `npx modern-web-guidance legacy-scan web --json` to enforce modern web standards (AbortSignal, error causes, dialogs, ARIA, content-visibility). |
+| **Ruff** | Ultra-fast Python linter and formatter | Enforces PEP 8, pyflakes, and code quality in backend `src/`. |
+| **Mypy** | Strict static type checker for Python | Validates type safety across `src/` modules. |
+| **TypeScript** | Static typing for React & Three.js | Strict null checks and WebGPU/TSL type validation in `web/`. |
 
 ## Installation
 
 ```bash
-# Frontend setup (in web/ or frontend/)
-npm install react react-dom zustand lucide-react
-npm install -D vite @vitejs/plugin-react typescript @types/react @types/react-dom tailwindcss postcss autoprefixer
+# Frontend Testing & Storage (web/)
+cd web
+npm install idb lz-string
+npm install -D vitest @testing-library/react @testing-library/jest-dom happy-dom @playwright/test
 
-# Backend setup (Python)
-pip install fastapi uvicorn[standard] python-multipart pydantic pytest mypy ruff
+# Install Playwright browser binaries
+npx playwright install chromium
+
+# Backend Testing & Contract Verification (root)
+pip install "schemathesis>=3.39.11" "pytest-asyncio>=0.23.0" "pyjwt>=2.10.1"
 ```
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| WebGPU + WebGL2 Fallback | Pure Canvas 2D CPU Math | Only for tiny thumbnails; Canvas 2D CPU math cannot maintain 60 FPS video or high-res images |
-| React + Vite SPA | Next.js / Nuxt SSR | When public SEO indexing of dynamic routes is paramount; for a client-side creative studio tool, SPA on Cloudflare Pages is faster, simpler, and completely free |
-| Render Free Web Service | AWS Lambda / Cloud Run | When budget allows pay-per-use or cold-starts are managed; Render free tier requires $0/month maintenance with zero card charges |
-| Client-Side Shader Preview | Server-Side WebRTC Streaming | When target devices are severely constrained thin clients without GPU; server WebRTC introduces high cloud server costs |
+| **idb** (~1.1KB) | Dexie.js (~30KB) / LocalForage | Use Dexie only if complex multi-table indexing and SQL-like relational queries are required. For ASCII Studio's document-like project structure, `idb` offers pure native promise ergonomics with zero bloat. |
+| **Native Web Audio API** | Tone.js (~150KB) / Howler.js | Use Tone.js for complex musical synthesis or sequencer sequencing. For reactive shader FFT spectrum and stream muxing, native `AnalyserNode` and `AudioContext` have zero bundle penalty and direct typed array outputs. |
+| **Vitest** | Jest | Use Jest only in legacy Node CommonJS codebases. Vitest shares Vite configuration, plugins, and transform pipeline with instant startup. |
+| **Playwright** | Cypress / Selenium | Use Cypress for basic web apps; Playwright is strictly required here for headless WebGPU flag emulation (`--enable-unsafe-webgpu`) and multi-context worker isolation. |
+| **lz-string (Client hash)** | Backend URL Shortener Database | Use a database URL shortener if URLs must be under 30 characters. Client-side lz-string compression in hash fragments enables 100% serverless, zero-maintenance sharing with $0 cloud cost. |
+| **Native structuredClone()** | lodash.cloneDeep | Modern Web Guidance rule: `structuredClone` is built into all modern browsers; zero bundle weight, handles circular references and typed arrays natively. |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| Heavy Electron wrapper | Bulky 150MB+ download, complex cross-platform distribution | Browser WebGPU SPA running instantly via URL |
-| Synchronous in-memory video encoding | Free-tier RAM limits (512MB on Render) will cause OOM crashes on 1080p video | Chunked disk-backed FFmpeg streaming via temporary files |
-| Blocking time.sleep / relative FPS chaining | Accumulates frame drift and desynchronizes video from audio | Monotonic deadline scheduling and WebGL/WebGPU render loops |
-| Server-side rendering of preview frames | Consumes server CPU on every slider drag, exhausting free tier instantly | Client-side shader preview; server only renders final export |
+| **Redux / Redux Toolkit / MobX** | Adds massive boilerplate and complex action dispatchers for a real-time 60fps canvas app where state mutations need minimal overhead. | Zustand stores with selective subscriptions and native shallow diffing. |
+| **lodash / underscore** | Bloats client bundle with legacy polyfills for tasks now native in standard JavaScript. | Native ES2024 features: `structuredClone()`, `.toSorted()`, `.toSpliced()`, `.with()`, `Object.groupBy()`. |
+| **html2canvas / dom-to-image** | Cannot capture WebGPU or WebGL2 contexts reliably; attempts to re-render DOM to SVG, resulting in black frames or severe lag. | Direct WebGL/WebGPU render target readback or `canvas.toBlob()` / `canvas.captureStream()`. |
+| **Dedicated GPU Cloud Instances (AWS EC2 G4, etc.)** | Violates the strict $0/month budget constraint; requires persistent expensive instances. | Client-side WebGPU/Canvas rendering for real-time interaction; Render Free Web Service (CPU FFmpeg) for export. |
+| **Tone.js** | Unnecessary abstraction layer that wraps Web Audio and increases JS bundle size by >150KB. | Native Web Audio `AudioContext` + `AnalyserNode` + typed array `getByteFrequencyData`. |
+| **Raw JSON.parse(JSON.stringify()) for State Snapshots** | Drops typed arrays, dates, maps, sets, and throws on cyclic references. Corrupts performance on undo/redo. | Native `structuredClone()`. |
 
 ## Stack Patterns by Variant
 
-**If Client Browser Supports WebGPU:**
-- Execute WGSL (WebGPU Shading Language) compute and fragment shaders directly on GPU.
-- Delivers maximum throughput (60+ FPS on 4K images and 1080p video).
+**If Client Environment supports WebGPU (`navigator.gpu` available):**
+- Use Three.js `WebGPURenderer` with compute/TSL shader nodes.
+- Maximum performance, direct storage buffer bindings, 60+ FPS at 4K canvas resolutions.
 
-**If Client Browser Lacks WebGPU (Older Safari, Firefox without flags):**
-- Automatically fall back to WebGL2 GLSL fragment shaders or optimized Canvas 2D fallback.
-- Ensures universal access across mobile devices and older desktops.
+**If Client Environment lacks WebGPU (Mobile / older browsers / Firefox standard):**
+- Use Three.js `WebGPURenderer({ forceWebGL: true })` fallback.
+- Transparently executes compiled GLSL passes via TSL node translator without code changes.
+
+**If User is Anonymous ($0/month default):**
+- Store all projects, custom ramps, presets, and history in local `IndexedDB`.
+- Share projects via compressed URL hash (`#project=...`) via `lz-string`. Zero server footprint.
+
+**If User opts into Cloud Sync (Optional):**
+- Authenticate via stateless JWT; store encrypted project metadata and recipes in Neon Serverless PostgreSQL ($0 free tier).
 
 ## Version Compatibility
 
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
-| FastAPI ^0.115 | Pydantic ^2.9 | Uses Pydantic v2 Core for ultra-fast JSON serialization |
-| Vite ^5.4 | React ^18.3 / ^19 | Fully compatible with modern JSX transforms and Tailwind CSS |
-| FFmpeg 5.x / 6.x / 7.x | Python 3.10 - 3.13 | Native subprocess streaming using `-fps_mode passthrough` and standard rawvideo |
+| `three@^0.187.0` | `@types/three@^0.187.0` | TSL imports from `three/tsl` and WebGPU renderer from `three/webgpu`. |
+| `react@^19.3.1` | `@testing-library/react@^16.2.0` | Requires Testing Library v16+ for React 19 support. |
+| `vitest@^3.0.7` | `vite@^8.3.8` | Vitest 3+ seamlessly integrates with Vite 8. |
+| `tailwindcss@^4.3.5` | `@tailwindcss/vite@^4.3.5` | Pure Vite plugin with zero PostCSS configuration file. |
+| `fastapi@^0.135.2` | `pydantic>=2.0` | Strict async schema validation. |
 
 ## Sources
 
-- Official WebGPU Specification & Chrome GPU documentation.
-- Cloudflare Pages Documentation (`wrangler.toml` configuration & asset routing).
-- Render Blueprint Specification (`render.yaml` services and Docker/native runtimes).
-- Grainrad feature and architecture inspection via browser automation.
+- Context7 / npm Registry — Pinned latest verified package versions (`three`, `vitest`, `playwright`, `idb`, `fastapi`).
+- Google Chrome Modern Web Guidance (`https://github.com/GoogleChrome/modern-web-guidance`) — Web platform standards: `content-visibility`, `structuredClone`, `AbortSignal.timeout`, `AbortSignal.any`, error causes.
+- WebGPU Working Group / Three.js Documentation — TSL (`three/tsl`) node-based composable post-processing architecture.
 
 ---
-*Stack research for: Browser-Based GPU Visual Effects & ASCII Studio*
-*Researched: 2026-11-16*
+*Stack research for: Browser-Based Real-Time Visual Effects & Media Processing Studio*
+*Researched: 2026-11-21*
