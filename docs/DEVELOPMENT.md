@@ -10,8 +10,8 @@ This guide details local development workflows, code standards, toolchains, and 
 ### 1. Repository Setup
 
 ```bash
-git clone https://github.com/Sujoy-004/ASCII.git
-cd ASCII
+git clone https://github.com/Sujoy-004/dithr.git
+cd dithr
 
 # Python virtual environment
 python -m venv .venv

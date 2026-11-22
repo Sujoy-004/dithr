@@ -3,7 +3,7 @@
 
 Real-time retro visual transformations, shaders, and ASCII studio for images, videos, and live webcam streams across browser, headless API, and client export pipelines.
 
-[![CI](https://github.com/Sujoy-004/ASCII/actions/workflows/ci.yml/badge.svg)](https://github.com/Sujoy-004/ASCII/actions/workflows/ci.yml)
+[![CI](https://github.com/Sujoy-004/dithr/actions/workflows/ci.yml/badge.svg)](https://github.com/Sujoy-004/dithr/actions/workflows/ci.yml)
 [![Live Studio](https://img.shields.io/badge/Live%20Studio-dithr.pages.dev%2Fstudio-00f0ff?style=for-the-badge&logo=cloudflarepages&logoColor=black)](https://dithr.pages.dev/studio/)
 [![Python Version](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -31,7 +31,7 @@ Real-time retro visual transformations, shaders, and ASCII studio for images, vi
 Run the interactive browser studio locally with zero backend dependencies:
 
 ```bash
-git clone https://github.com/Sujoy-004/ASCII.git && cd ASCII/web && npm install && npm run dev
+git clone https://github.com/Sujoy-004/dithr.git && cd dithr/web && npm install && npm run dev
 ```
 
 ---
@@ -58,8 +58,8 @@ To run the FastAPI export backend locally:
 
 ```bash
 # Clone the repository
-git clone https://github.com/Sujoy-004/ASCII.git
-cd ASCII
+git clone https://github.com/Sujoy-004/dithr.git
+cd dithr
 
 # Install dependencies
 pip install -r requirements.txt

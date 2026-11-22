@@ -40,8 +40,8 @@ Ensure you have the following runtimes and tools installed on your operating sys
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/Sujoy-004/ASCII.git
-   cd ASCII
+   git clone https://github.com/Sujoy-004/dithr.git
+   cd dithr
    ```
 
 2. **Launch the Web Studio:**
