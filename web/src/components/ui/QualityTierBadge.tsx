@@ -61,8 +61,8 @@ export default function QualityTierBadge({ compact = false }: QualityTierBadgePr
         onClick={() => setIsOpen(!isOpen)}
         aria-label={`Quality Tier: ${tierShort}, Engine: ${engineShort}. Click to switch quality tier.`}
         title="Click to switch quality tier"
-        className={`flex h-5 items-center gap-1 border border-border px-1.5 text-[10px] font-mono transition-colors hover:border-[#00ff66] ${
-          isOpen ? 'bg-[#00ff66]/10 text-[#00ff66] border-[#00ff66]' : 'text-[#00ff66] bg-raised'
+        className={`flex h-5 items-center gap-1 border px-1.5 text-[10px] font-mono transition-colors hover:border-[#a3a3a3] ${
+          isOpen ? 'bg-active text-highlight border-[#a3a3a3]' : 'border-hairline text-highlight bg-raised'
         }`}
       >
         <span>[TIER: {tierShort}]</span>
@@ -95,8 +95,8 @@ export default function QualityTierBadge({ compact = false }: QualityTierBadgePr
                   }}
                   className={`flex flex-col items-start gap-0.5 p-1.5 text-left border transition-colors ${
                     isSelected
-                      ? 'border-[#00ff66] bg-[#00ff66]/10 text-[#00ff66]'
-                      : 'border-border bg-base text-[#777777] hover:border-border-highlight hover:text-highlight'
+                      ? 'border-[#a3a3a3] bg-active text-highlight'
+                      : 'border-hairline bg-base text-dim hover:border-[#a3a3a3] hover:text-highlight'
                   }`}
                 >
                   <div className="flex items-center gap-1.5 font-medium">

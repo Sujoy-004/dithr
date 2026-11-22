@@ -33,6 +33,7 @@ export default function CenterStage() {
   const setDetectedCapabilities = useStudioStore((s) => s.setDetectedCapabilities);
   const setRenderStatus = useStudioStore((s) => s.setRenderStatus);
   const setIsPlaying = useStudioStore((s) => s.setIsPlaying);
+  const setIsMuted = useStudioStore((s) => s.setIsMuted);
   const setPlaybackTime = useStudioStore((s) => s.setPlaybackTime);
   const setDuration = useStudioStore((s) => s.setDuration);
 
@@ -336,20 +337,25 @@ export default function CenterStage() {
           aria-label="Media viewport canvas"
         />
 
-        {/* Single persistent off-screen video playback element for video and live webcam */}
+        {/* Single persistent in-viewport video playback element for video and live webcam */}
         <video
           ref={videoRef}
           playsInline
+          aria-hidden="true"
+          tabIndex={-1}
           preload="auto"
           loop={mediaType === 'video'}
           style={{
-            position: 'fixed',
-            top: '-9999px',
-            left: '-9999px',
-            width: '320px',
-            height: '240px',
-            opacity: 0,
+            position: 'absolute',
+            width: '1px',
+            height: '1px',
+            bottom: 0,
+            right: 0,
+            opacity: 0.01,
             pointerEvents: 'none',
+          }}
+          onVolumeChange={(e) => {
+            setIsMuted(e.currentTarget.muted);
           }}
           onLoadedMetadata={(e) => {
             const el = e.currentTarget;

@@ -25,7 +25,7 @@ export default function Header() {
 
       <div className="hidden sm:flex items-center gap-2">
         <span>
-          local session <span className="text-[#00ff66]">● offline-ready</span>
+          local session <span className="text-[#a3a3a3]">● offline-ready</span>
         </span>
       </div>
 

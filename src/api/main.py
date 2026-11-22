@@ -83,6 +83,18 @@ app.include_router(health_router, prefix="/api")
 app.include_router(export_router, prefix="/api/export")
 
 
+@app.get("/", tags=["system"])
+async def root() -> dict[str, str]:
+    """Root system status endpoint providing API identity and documentation links."""
+    return {
+        "name": "dithr API",
+        "version": "2.0.0",
+        "status": "online",
+        "docs": "/docs",
+        "health": "/api/health",
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 

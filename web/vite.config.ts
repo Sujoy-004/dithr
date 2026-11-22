@@ -5,6 +5,14 @@ import tailwindcss from '@tailwindcss/vite';
 // Tailwind v4 integrates through the dedicated Vite plugin — no PostCSS config.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     rollupOptions: {
       input: {

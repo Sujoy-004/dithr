@@ -156,7 +156,15 @@ export function getActiveFile(): File | null {
 
 /** Retrieve registered persistent <video> element. */
 export function getRegisteredVideo(): HTMLVideoElement | null {
-  return registeredVideo;
+  if (registeredVideo && typeof document !== 'undefined' && document.contains(registeredVideo)) {
+    return registeredVideo;
+  }
+  const el = typeof document !== 'undefined' ? (document.querySelector('video') as HTMLVideoElement | null) : null;
+  if (el) {
+    registeredVideo = el;
+    return el;
+  }
+  return null;
 }
 
 /** Retrieve active webcam MediaStream if active. */
@@ -296,38 +304,39 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   duration: 0,
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setIsMuted: (muted) => {
-    if (registeredVideo) {
-      registeredVideo.muted = muted;
-      registeredVideo.volume = muted ? 0 : 1.0;
+    const el = getRegisteredVideo();
+    if (el) {
+      el.muted = muted;
     }
     set({ isMuted: muted });
   },
   setPlaybackTime: (time) => set({ playbackTime: time }),
   setDuration: (duration) => set({ duration }),
   togglePlay: () => {
-    if (!registeredVideo) return;
-    if (registeredVideo.paused) {
-      registeredVideo.muted = get().isMuted;
-      if (!get().isMuted) registeredVideo.volume = 1.0;
-      registeredVideo.play().then(() => set({ isPlaying: true })).catch(() => undefined);
+    const el = getRegisteredVideo();
+    if (!el) return;
+    if (el.paused) {
+      el.play().then(() => set({ isPlaying: true })).catch(() => undefined);
     } else {
-      registeredVideo.pause();
+      el.pause();
       set({ isPlaying: false });
     }
   },
   stopVideo: () => {
-    if (!registeredVideo) return;
-    registeredVideo.pause();
-    registeredVideo.currentTime = 0;
+    const el = getRegisteredVideo();
+    if (!el) return;
+    el.pause();
+    el.currentTime = 0;
     set({ isPlaying: false, playbackTime: 0 });
   },
   toggleMute: () => {
-    if (!registeredVideo) return;
-    const nextMuted = !get().isMuted;
-    registeredVideo.muted = nextMuted;
-    registeredVideo.volume = nextMuted ? 0 : 1.0;
-    if (!nextMuted && registeredVideo.paused) {
-      registeredVideo.play().catch(() => undefined);
+    const el = getRegisteredVideo();
+    if (!el) return;
+    const nextMuted = !el.muted;
+    el.muted = nextMuted;
+    if (!nextMuted) {
+      if (el.volume === 0) el.volume = 1.0;
+      el.play().catch(() => undefined);
     }
     set({ isMuted: nextMuted });
   },
@@ -379,7 +388,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       }
     } else {
       // Direct video configuration with registered persistent element
-      const el = registeredVideo;
+      const el = getRegisteredVideo();
       if (el) {
         el.pause();
         el.srcObject = null;
@@ -387,19 +396,28 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         el.loop = true;
         el.currentTime = 0;
         el.volume = 1.0;
-        el.muted = false; // default unmuted so video audio is hearable
-        el.load();
+        el.muted = false; // default unmuted on user upload gesture
 
-        el.play()
-          .then(() => {
+        const startPlayback = async () => {
+          try {
+            await el.play();
             set({ isPlaying: true, isMuted: false });
-          })
-          .catch((err) => {
-            console.warn('Browser blocked unmuted autoplay. Starting muted; click unmute:', err);
+          } catch (err) {
+            console.warn('Browser autoplay blocked unmuted audio; starting muted:', err);
             el.muted = true;
+            await el.play().then(() => set({ isPlaying: true })).catch(() => undefined);
             set({ isMuted: true });
-            el.play().then(() => set({ isPlaying: true })).catch(() => undefined);
-          });
+          }
+        };
+
+        if (el.readyState >= 2) {
+          void startPlayback();
+        } else {
+          el.oncanplay = () => {
+            el.oncanplay = null;
+            void startPlayback();
+          };
+        }
       }
 
       const dimensions = el && el.videoWidth && el.videoHeight
@@ -412,7 +430,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         mediaName: file.name,
         dimensions,
         isPlaying: true,
-        isMuted: false,
+        isMuted: el ? el.muted : false,
         playbackTime: 0,
         duration: el?.duration || 0,
       });

@@ -2,7 +2,7 @@
  * Client-side high-resolution canvas capture and chunk upload orchestrator per D-01, D-02, D-03, D-05.
  */
 
-import { getAudioStreamTrack, getOrCreateAudioGraph, resumeAudioContext } from './audioGraph';
+import { resumeAudioContext } from './audioGraph';
 import { exportApi, ServerBusyApiError } from '../services/exportApi';
 import { getActiveFile, getActiveStream, getRegisteredVideo } from '../store/useStudioStore';
 
@@ -131,10 +131,14 @@ export function startServerExport(options: ServerExportOptions): ActiveExportCon
       if (includeAudio && format === 'mp4') {
         const videoEl = getRegisteredVideo();
         if (videoEl && !videoEl.paused) {
-          getOrCreateAudioGraph(videoEl);
-          const audioTrack = getAudioStreamTrack();
-          if (audioTrack) {
-            stream.addTrack(audioTrack);
+          try {
+            const videoStream = (videoEl as any).captureStream ? (videoEl as any).captureStream() : null;
+            const audioTrack = videoStream ? videoStream.getAudioTracks()[0] : null;
+            if (audioTrack) {
+              stream.addTrack(audioTrack);
+            }
+          } catch {
+            // ignore
           }
         } else {
           const webcamStream = getActiveStream();

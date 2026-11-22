@@ -3,6 +3,7 @@ import TurnstileWidget from '../ui/TurnstileWidget';
 import { exportApi, ServerBusyApiError } from '../../services/exportApi';
 import { startServerExport } from '../../export/serverExport';
 import type { ActiveExportController } from '../../export/serverExport';
+import { useStudioStore } from '../../store/useStudioStore';
 
 export interface ServerExportModalProps {
   isOpen: boolean;
@@ -54,19 +55,24 @@ export default function ServerExportModal({
   const controllerRef = useRef<ActiveExportController | null>(null);
   const isMountedRef = useRef(true);
 
+  const mediaDuration = useStudioStore((s) => s.duration);
+  const mediaType = useStudioStore((s) => s.mediaType);
+
   // Synchronize default format when changed from parent
   useEffect(() => {
     setFormat(defaultFormat);
+    const initialDur = mediaType === 'video' && mediaDuration > 0
+      ? Math.min(defaultFormat === 'gif' ? 15 : 60, Math.max(1, Math.round(mediaDuration)))
+      : (defaultFormat === 'gif' ? 5 : 10);
+    setDuration(initialDur);
     if (defaultFormat === 'gif') {
       setResolution('720p');
       setFps(12);
-      setDuration(5);
     } else {
       setResolution('1080p');
       setFps(30);
-      setDuration(10);
     }
-  }, [defaultFormat]);
+  }, [defaultFormat, mediaDuration, mediaType]);
 
   // Intent-driven container pre-warming with exponential backoff per D-04
   useEffect(() => {
@@ -477,9 +483,19 @@ export default function ServerExportModal({
           {phase === 'error' && (
             <div className="flex flex-col items-center justify-center gap-3 py-4 text-center">
               <div className="text-red-400 font-bold text-sm">✖ EXPORT PIPELINE ERROR</div>
-              <p className="text-dim text-xs max-w-sm bg-black/40 border border-border p-2">
-                {errorMessage}
-              </p>
+              <div className="flex flex-col gap-2 max-w-md bg-black/40 border border-border p-3 text-left">
+                <p className="text-dim text-xs font-mono">
+                  {errorMessage}
+                </p>
+                {errorMessage?.includes('Failed to fetch') && (
+                  <p className="text-[11px] text-amber-400/90 border-t border-border pt-2 leading-relaxed font-mono">
+                    <strong>Backend server is offline:</strong> Cannot connect to <code>http://localhost:8000</code>. Start the backend in a separate terminal window:
+                    <br />
+                    <code className="block bg-black px-2 py-1 mt-1 text-highlight">uvicorn src.api.main:app --port 8000</code>
+                    <span className="block mt-1 text-dim">Or use in-browser <strong>WebM Video</strong> / <strong>Animated GIF</strong> in the export panel, which requires no backend server.</span>
+                  </p>
+                )}
+              </div>
               <div className="flex gap-2">
                 <button
                   type="button"

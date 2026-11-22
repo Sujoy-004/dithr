@@ -88,7 +88,7 @@ Exceptions: none
 |------|-------|-------|
 | Dominant (60%) | #0a0a0a | Main studio background, Center Stage surface, canvas backdrop |
 | Secondary (30%) | #151515 | Docked rails, panel cards, modal dialogs, toolbar containers, table headers |
-| Accent (10%) | #00ff66 | Primary CTA highlights, active GPU tier badge, live telemetry status dot |
+| Accent (10%) | #a3a3a3 | Subtle dark minimalist: muted monochrome highlights, tier badge, status dot |
 | Destructive | #ff4444 | Export cancellation, media ejection, rate limit and error alerts |
 
 Accent reserved for:
