@@ -47,6 +47,8 @@ export default function ServerExportModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busyCountdown, setBusyCountdown] = useState(30);
   const [expireCountdown, setExpireCountdown] = useState(600); // 10 minutes
+  const [isCanceling, setIsCanceling] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [telemetry, setTelemetry] = useState<{ fps?: number; speed?: string; bytesUploaded?: number }>({});
   const controllerRef = useRef<ActiveExportController | null>(null);
@@ -187,6 +189,23 @@ export default function ServerExportModal({
   };
 
   const handleCancel = async () => {
+    if (phase === 'exporting' && controllerRef.current) {
+      setIsCanceling(true);
+      setStatusMessage('Terminating FFmpeg subprocess and cleaning job storage...');
+      try {
+        await controllerRef.current.cancel();
+      } finally {
+        controllerRef.current = null;
+        setIsCanceling(false);
+        setToastMessage('Export job canceled. Temporary files purged.');
+        setTimeout(() => {
+          setPhase('config');
+          setToastMessage(null);
+          onClose();
+        }, 1200);
+      }
+      return;
+    }
     if (controllerRef.current) {
       await controllerRef.current.cancel();
       controllerRef.current = null;
@@ -428,10 +447,11 @@ export default function ServerExportModal({
               <div className="mt-2 flex justify-end border-t border-border pt-3">
                 <button
                   type="button"
+                  disabled={isCanceling}
                   onClick={handleCancel}
-                  className="h-7 border border-red-500/50 text-red-400 hover:bg-red-500/20 px-3 transition-colors"
+                  className="h-7 border border-[#ff4444] text-[#ff4444] hover:bg-[#ff4444]/20 px-3 transition-colors disabled:opacity-50"
                 >
-                  Cancel Export
+                  {isCanceling ? 'Canceling Export Job...' : 'Cancel Export Job'}
                 </button>
               </div>
             </div>
@@ -518,6 +538,11 @@ export default function ServerExportModal({
             </div>
           )}
         </div>
+        {toastMessage && (
+          <div className="border-t border-[#ff4444]/40 bg-[#ff4444]/10 p-2 text-center text-xs text-[#ff4444] font-bold">
+            {toastMessage}
+          </div>
+        )}
       </div>
     </div>
   );

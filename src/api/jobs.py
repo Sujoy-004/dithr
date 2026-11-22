@@ -8,9 +8,12 @@ import hashlib
 import os
 from pathlib import Path
 import secrets
+import shutil
 import tempfile
 import time
 from typing import ClassVar
+
+import psutil
 
 VALID_STATES = {
     "capturing",
@@ -81,6 +84,41 @@ class ExportJob:
     def is_terminal(self) -> bool:
         """Return True if job has reached a final state."""
         return self.state in TERMINAL_STATES
+
+
+def terminate_job_process_tree(pid: int | None, timeout: float = 3.0) -> None:
+    """Terminate parent process and all child processes recursively using psutil."""
+    if pid is None:
+        return
+    try:
+        parent = psutil.Process(pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return
+
+    try:
+        children = parent.children(recursive=True)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        children = []
+
+    procs_to_terminate = children + [parent]
+    for p in procs_to_terminate:
+        try:
+            p.terminate()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    gone, alive = psutil.wait_procs(procs_to_terminate, timeout=timeout)
+    for p in alive:
+        try:
+            p.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+
+def cleanup_job_storage(job_dir: Path) -> None:
+    """Purge temporary job directory from disk."""
+    if job_dir.exists():
+        shutil.rmtree(job_dir, ignore_errors=True)
 
 
 class ExportJobManager:
@@ -219,7 +257,12 @@ class ExportJobManager:
         return job
 
     def cancel_job(self, job_id: str, reason: str = "User cancelled export") -> ExportJob:
-        """Cancel an in-progress export job and release lock."""
+        """Cancel an in-progress export job, terminate process tree, wipe storage, and release lock."""
+        job = self._jobs.get(job_id)
+        if job and job.pid:
+            terminate_job_process_tree(job.pid)
+            job.pid = None
+        cleanup_job_storage(self.get_job_dir(job_id))
         return self.transition_job(job_id, "cancelled", error=reason)
 
     def fail_job(self, job_id: str, error_message: str) -> ExportJob:
