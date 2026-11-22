@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Minus, Plus, Sun, Moon, Play, Pause, Square, Volume2, VolumeX, X } from 'lucide-react';
 import { useStudioStore, ZOOM_MAX, ZOOM_MIN } from '../../store/useStudioStore';
+import QualityTierBadge from '../ui/QualityTierBadge';
 
 const ZOOM_STEP = 1.25;
 
@@ -105,6 +106,11 @@ export default function ViewportHUD() {
       <span className="text-control tabular-nums text-dim">
         {dimensions ? `${dimensions.width}×${dimensions.height}` : 'no media'}
       </span>
+
+      <span aria-hidden className="mx-1 h-4 w-px bg-hairline" />
+
+      {/* GPU Quality Tier Badge with Override Popover */}
+      <QualityTierBadge compact />
 
       {/* Media Eject / Close Button */}
       {mediaType && (

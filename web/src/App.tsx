@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useStudioStore } from './store/useStudioStore';
+import Header from './components/layout/Header';
 import LeftRail from './components/layout/LeftRail';
 import CenterStage from './components/layout/CenterStage';
 import RightRail from './components/layout/RightRail';
@@ -13,6 +14,8 @@ export default function App() {
   const theme = useStudioStore((s) => s.theme);
   const zoom = useStudioStore((s) => s.zoom);
   const dimensions = useStudioStore((s) => s.dimensions);
+  const activeTier = useStudioStore((s) => s.activeTier);
+  const renderStatus = useStudioStore((s) => s.renderStatus);
   const setLeftCollapsed = useStudioStore((s) => s.setLeftCollapsed);
   const setRightCollapsed = useStudioStore((s) => s.setRightCollapsed);
 
@@ -31,24 +34,15 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, [setLeftCollapsed, setRightCollapsed]);
 
+  const targetFps = activeTier === 'high' ? '60fps' : '30fps';
+  const renderStatusText =
+    renderStatus === 'active'
+      ? `render: active (${targetFps})`
+      : 'render: paused (idle standby)';
+
   return (
     <div className="flex h-full w-full flex-col bg-base text-default">
-      <header
-        className="flex h-6 shrink-0 items-center justify-between border-b border-hairline px-2 text-control text-dim select-none"
-        role="banner"
-      >
-        <a
-          href="/"
-          title="Return to Product Overview"
-          className="truncate text-dim hover:text-highlight transition-colors"
-        >
-          rgb-ascii studio v1.0.0 [webgpu]
-        </a>
-        <span className="hidden sm:inline">
-          local session <span className="text-highlight">● offline-ready</span>
-        </span>
-        <span className="tabular-nums">ascii studio</span>
-      </header>
+      <Header />
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <LeftRail />
@@ -63,6 +57,13 @@ export default function App() {
         <span className="tabular-nums truncate">
           zoom {Math.round(zoom * 100)}%
           {dimensions ? ` · ${dimensions.width}×${dimensions.height}` : ''}
+        </span>
+        <span
+          className={`tabular-nums truncate font-mono ${
+            renderStatus === 'active' ? 'text-dim' : 'text-highlight'
+          }`}
+        >
+          {renderStatusText}
         </span>
         <span className="truncate">rec.601 linear</span>
       </footer>
