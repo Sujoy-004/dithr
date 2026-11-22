@@ -3,12 +3,14 @@ import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } f
 import * as THREE from 'three/webgpu';
 import { useStudioStore, registerVideoElement } from '../../store/useStudioStore';
 import { StudioPipeline } from '../../engine/Pipeline';
+import { detectGpuCapabilities, TIER_CONFIGS } from '../../engine/capabilities';
 import ViewportHUD from '../canvas/ViewportHUD';
 import Dropzone from '../canvas/Dropzone';
 
 /**
- * Center Stage (D-03): canvas viewport with a hardware-accelerated pan/zoom
- * CSS transform layer, Three.js WebGPU / WebGL2 shader pipeline, and ViewportHUD.
+ * Center Stage (D-03, D-08, RELY-09, RELY-10): canvas viewport with
+ * hardware-accelerated CSS transform layer, Three.js WebGPU / WebGL2 shader pipeline,
+ * GPU capability detection, adaptive FPS throttling, and intelligent idle render pause.
  *
  * Stage-wide drag-and-drop (D-04, MEDIA-01): dropping a file anywhere over
  * the stage loads it; the standby dropzone card shows while no media is
@@ -27,13 +29,19 @@ export default function CenterStage() {
   const ascii = useStudioStore((s) => s.ascii);
   const effect = useStudioStore((s) => s.effect);
   const effectParams = useStudioStore((s) => s.effectParams);
+  const activeTier = useStudioStore((s) => s.activeTier);
+  const setDetectedCapabilities = useStudioStore((s) => s.setDetectedCapabilities);
+  const setRenderStatus = useStudioStore((s) => s.setRenderStatus);
   const setIsPlaying = useStudioStore((s) => s.setIsPlaying);
   const setPlaybackTime = useStudioStore((s) => s.setPlaybackTime);
   const setDuration = useStudioStore((s) => s.setDuration);
 
+  const stageSectionRef = useRef<HTMLElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pipelineRef = useRef<StudioPipeline | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const animIdRef = useRef<number>(0);
+  const isPausedRef = useRef<boolean>(false);
 
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(
     null,
@@ -41,7 +49,14 @@ export default function CenterStage() {
   const [dragOver, setDragOver] = useState(false);
   const webcamActive = mediaType === 'webcam';
 
-  // 1. Initialize Pipeline on mount
+  // 1. Detect GPU Capabilities on mount per D-08 and RELY-09
+  useEffect(() => {
+    void detectGpuCapabilities().then((caps) => {
+      setDetectedCapabilities(caps);
+    });
+  }, [setDetectedCapabilities]);
+
+  // 2. Initialize Pipeline on mount and attach adaptive RAF loop with idle pause (RELY-10)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -49,29 +64,103 @@ export default function CenterStage() {
     const pipeline = new StudioPipeline({ canvas });
     pipelineRef.current = pipeline;
 
-    let animId: number;
     const startTime = performance.now();
+    let lastFrameTime = startTime;
 
     const loop = (time: number) => {
-      pipeline.render((time - startTime) * 0.001);
-      animId = requestAnimationFrame(loop);
+      if (isPausedRef.current) return;
+
+      const currentTier = useStudioStore.getState().activeTier;
+      const targetFps = TIER_CONFIGS[currentTier]?.targetFps || 60;
+      const minInterval = 1000 / targetFps - 2; // small tolerance margin
+
+      if (time - lastFrameTime >= minInterval) {
+        lastFrameTime = time;
+        pipeline.render((time - startTime) * 0.001);
+      }
+      animIdRef.current = requestAnimationFrame(loop);
     };
 
-    pipeline.init().then(() => {
-      pipeline.resize(canvas.clientWidth || 800, canvas.clientHeight || 600);
-      animId = requestAnimationFrame(loop);
-    }).catch((err) => {
-      console.warn('Studio shader pipeline init warning:', err);
-    });
+    pipeline
+      .init()
+      .then(() => {
+        pipeline.resize(canvas.clientWidth || 800, canvas.clientHeight || 600);
+        if (!isPausedRef.current) {
+          animIdRef.current = requestAnimationFrame(loop);
+        }
+      })
+      .catch((err) => {
+        console.warn('Studio shader pipeline init warning:', err);
+      });
+
+    // Handle document visibilitychange (tab hidden/backgrounded)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        isPausedRef.current = true;
+        if (animIdRef.current) {
+          cancelAnimationFrame(animIdRef.current);
+          animIdRef.current = 0;
+        }
+        setRenderStatus('paused');
+      } else {
+        if (isPausedRef.current) {
+          isPausedRef.current = false;
+          setRenderStatus('active');
+          lastFrameTime = performance.now();
+          if (!animIdRef.current && pipelineRef.current) {
+            animIdRef.current = requestAnimationFrame(loop);
+          }
+        }
+      }
+    };
+
+    // Handle container contentvisibilityautostatechange (off-screen scrolling)
+    const handleContentVisibility = (e: Event) => {
+      const isSkipped = (e as any).skipped;
+      if (isSkipped) {
+        isPausedRef.current = true;
+        if (animIdRef.current) {
+          cancelAnimationFrame(animIdRef.current);
+          animIdRef.current = 0;
+        }
+        setRenderStatus('paused');
+      } else if (isPausedRef.current && !document.hidden) {
+        isPausedRef.current = false;
+        setRenderStatus('active');
+        lastFrameTime = performance.now();
+        if (!animIdRef.current && pipelineRef.current) {
+          animIdRef.current = requestAnimationFrame(loop);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const stageEl = stageSectionRef.current;
+    if (stageEl) {
+      stageEl.addEventListener(
+        'contentvisibilityautostatechange' as any,
+        handleContentVisibility
+      );
+    }
 
     return () => {
-      cancelAnimationFrame(animId);
+      if (animIdRef.current) {
+        cancelAnimationFrame(animIdRef.current);
+        animIdRef.current = 0;
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (stageEl) {
+        stageEl.removeEventListener(
+          'contentvisibilityautostatechange' as any,
+          handleContentVisibility
+        );
+      }
       pipeline.dispose();
       pipelineRef.current = null;
     };
-  }, []);
+  }, [setRenderStatus]);
 
-  // 2. Synchronize tone and ascii settings to pipeline
+  // 3. Synchronize tone, ascii, effect and parameters to pipeline
   useEffect(() => {
     if (pipelineRef.current) {
       pipelineRef.current.updateTone(tone);
@@ -98,7 +187,29 @@ export default function CenterStage() {
     }
   }, [effectParams]);
 
-  // 3. Synchronize media texture to pipeline
+  // 4. Adapt canvas sizing to quality tier and dimensions
+  useEffect(() => {
+    const pipeline = pipelineRef.current;
+    if (!pipeline) return;
+
+    const maxDim = TIER_CONFIGS[activeTier]?.maxDimension || 1080;
+    let targetW = dimensions?.width || 800;
+    let targetH = dimensions?.height || 600;
+
+    if (targetW > maxDim || targetH > maxDim) {
+      if (targetW >= targetH) {
+        targetH = Math.round((targetH * maxDim) / targetW);
+        targetW = maxDim;
+      } else {
+        targetW = Math.round((targetW * maxDim) / targetH);
+        targetH = maxDim;
+      }
+    }
+
+    pipeline.resize(targetW, targetH);
+  }, [activeTier, dimensions]);
+
+  // 5. Synchronize media texture to pipeline
   useEffect(() => {
     const pipeline = pipelineRef.current;
     if (!pipeline) return;
@@ -192,6 +303,7 @@ export default function CenterStage() {
 
   return (
     <section
+      ref={stageSectionRef}
       className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-base"
       aria-label="Center stage"
       onDragOver={onDragOver}
