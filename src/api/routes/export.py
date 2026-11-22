@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
@@ -36,7 +36,7 @@ from src.api.transcode import run_ffmpeg_transcode, validate_assembled_media
 
 logger = logging.getLogger(__name__)
 
-EXPORT_RESPONSES = {
+EXPORT_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"description": "Bad Request / Format Validation Failure"},
     401: {"description": "Unauthorized / Invalid Job Token"},
     403: {"description": "Forbidden / Turnstile Verification Failure"},
