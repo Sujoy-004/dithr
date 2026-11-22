@@ -3,16 +3,16 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rgb-ascii-renderer"
-version = "1.0.0"
-description = "Real-time RGB ASCII video renderer using Python, FFmpeg, and ANSI True Color"
+name = "dithr"
+version = "2.0.0"
+description = "dithr: Real-time retro visual transformations and high-fidelity media export studio"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-keywords = ["ascii", "video", "terminal", "ffmpeg", "ansi", "truecolor", "player"]
+keywords = ["ascii", "video", "dither", "retro", "shaders", "webgpu", "export", "studio"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
-    "Environment :: Console",
+    "Environment :: Web Environment",
     "Intended Audience :: End Users/Desktop",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -20,25 +20,18 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Video :: Display",
-    "Topic :: Terminals",
 ]
 
-# The application itself is standard-library only; FFmpeg/FFplay are external
-# executables, not Python dependencies. See requirements.txt.
+# The application backend is FastAPI; FFmpeg is an external server-side executable.
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-asyncio", "pyyaml", "mypy>=1.0", "ruff>=0.1"]
+dev = ["pytest>=7.0", "pytest-asyncio", "pyyaml", "mypy>=1.0", "ruff>=0.1", "schemathesis>=3.30", "hypothesis"]
 
 [project.urls]
-Homepage = "https://github.com/Sujoy-004/ASCII"
+Homepage = "https://dithr.pages.dev"
 Source = "https://github.com/Sujoy-004/ASCII"
 Issues = "https://github.com/Sujoy-004/ASCII/issues"
-
-[project.scripts]
-# Equivalent to the documented `python -m src.main`. src/main.py derives its
-# own argparse prog name so `--help` shows whichever one was invoked.
-rgb-ascii = "src.main:main"
 
 [tool.setuptools]
 # Required, not decorative: without it setuptools flat-layout auto-discovery
@@ -72,16 +65,4 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-# Deliberately narrow. E4/E7/E9 + F is the pyflakes-plus-pycodestyle gate that
-# catches real defects (undefined names, unused/undefined bindings, syntax and
-# import errors) without demanding a reformat of the whole codebase.
-#
-# F is not academic here: pyflakes is what caught the undefined `_QUALITY_NAMES`
-# in the adaptive-quality debug report before it shipped as a guaranteed
-# traceback on every debug run.
-#
-# Deliberately NOT enabled: the formatter-adjacent and opinionated families
-# (I, UP, SIM, PLR, RUF, B, C4, ...). They are not errors, and adopting them
-# would mean mass-reformatting code unrelated to correctness. Widen this list
-# deliberately, in its own change, once the codebase is ready for it.
 select = ["E4", "E7", "E9", "F"]

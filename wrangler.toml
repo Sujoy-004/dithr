@@ -1,4 +1,4 @@
-# Cloudflare Pages configuration for RGB ASCII & Retro FX Studio
-name = "rgb-ascii"
+# Cloudflare Pages configuration for dithr Studio
+name = "dithr"
 compatibility_date = "2026-11-18"
 pages_build_output_dir = "./web/dist"

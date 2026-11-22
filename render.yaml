@@ -1,8 +1,8 @@
-# Render Blueprint Specification for RGB ASCII & Retro FX Studio
+# Render Blueprint Specification for dithr API
 # Free-tier single-worker deployment with system FFmpeg on Debian Bookworm
 services:
   - type: web
-    name: rgb-ascii-api
+    name: dithr-api
     runtime: python
     plan: free
     region: oregon
@@ -15,7 +15,7 @@ services:
       - key: ENVIRONMENT
         value: production
       - key: CORS_ORIGINS
-        value: https://rgb-ascii.pages.dev,http://localhost:5173,http://127.0.0.1:5173
+        value: https://dithr.pages.dev,http://localhost:5173,http://127.0.0.1:5173
       - key: MAX_CHUNK_BYTES
         value: "5242880"
       - key: MAX_TOTAL_VIDEO_BYTES

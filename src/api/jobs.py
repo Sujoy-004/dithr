@@ -137,9 +137,9 @@ class ExportJobManager:
             if env_dir:
                 self._storage_dir = Path(env_dir)
             elif os.name != "nt" and os.path.exists("/tmp"):
-                self._storage_dir = Path("/tmp/ascii_studio_exports")
+                self._storage_dir = Path("/tmp/dithr_exports")
             else:
-                self._storage_dir = Path(tempfile.gettempdir()) / "ascii_studio_exports"
+                self._storage_dir = Path(tempfile.gettempdir()) / "dithr_exports"
         self._storage_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod

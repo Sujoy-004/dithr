@@ -35,7 +35,7 @@ def test_render_blueprint_validity() -> None:
 
     web_svc = services[0]
     assert web_svc["type"] == "web"
-    assert web_svc["name"] == "rgb-ascii-api"
+    assert web_svc["name"] in ("dithr-api", "rgb-ascii-api")
     assert web_svc["runtime"] == "python"
     assert web_svc["plan"] == "free"
     assert web_svc["numInstances"] == 1
@@ -59,7 +59,7 @@ def test_cloudflare_pages_configuration() -> None:
     wrangler_path = Path("wrangler.toml")
     assert wrangler_path.exists(), "wrangler.toml must exist at repository root"
     content = wrangler_path.read_text(encoding="utf-8")
-    assert 'name = "rgb-ascii"' in content
+    assert ('name = "dithr"' in content) or ('name = "rgb-ascii"' in content)
     assert 'pages_build_output_dir = "./web/dist"' in content
 
     redirects_path = Path("web/public/_redirects")

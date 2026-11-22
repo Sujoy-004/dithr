@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { detectGpuCapabilities } from '../engine/capabilities';
 
 describe('detectGpuCapabilities (D-08, RELY-09)', () => {

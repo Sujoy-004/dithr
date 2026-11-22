@@ -13,12 +13,13 @@ class ApiConfig:
     environment: str = "development"
     cors_origins: list[str] = field(
         default_factory=lambda: [
+            "https://dithr.pages.dev",
             "https://rgb-ascii.pages.dev",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
         ]
     )
-    cors_origin_regex: str = r"^https:\/\/[a-zA-Z0-9-]+\.rgb-ascii\.pages\.dev$"
+    cors_origin_regex: str = r"^https:\/\/[a-zA-Z0-9-]+\.(dithr|rgb-ascii)\.pages\.dev$"
 
     turnstile_secret_key: str = ""
     turnstile_site_key: str = ""
@@ -62,6 +63,7 @@ class ApiConfig:
             origins = [o.strip() for o in custom_origins.split(",") if o.strip()]
         else:
             origins = [
+                "https://dithr.pages.dev",
                 "https://rgb-ascii.pages.dev",
                 "http://localhost:5173",
                 "http://127.0.0.1:5173",
