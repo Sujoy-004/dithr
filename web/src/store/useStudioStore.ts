@@ -533,3 +533,7 @@ function stopWebcamInternal(
     }
   }
 }
+
+if (typeof window !== 'undefined') {
+  (window as any).useStudioStore = useStudioStore;
+}
