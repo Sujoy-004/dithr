@@ -629,12 +629,13 @@ export async function detectGpuCapabilities(): Promise<GpuCapabilities> {
 | A1 | `@testing-library/jest-dom` v6.6.3 is compatible with Vitest 5.x and jsdom 31.x | Standard Stack | Low — `vitest` native matchers (`expect().toBeDefined()`) provide sufficient assertion surface if jest-dom matchers have version conflicts. |
 | A2 | Playwright `--use-gl=angle` and `--use-angle=swiftshader` software rendering produces consistent WebGL canvas raster output in GitHub Actions Ubuntu runners | Standard Stack & Architecture Patterns | Low — SwiftShader is Google Chrome's official CPU software rasterizer, documented and supported across all modern Chromium builds. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **How should the quality tier heuristics handle high-resolution mobile devices with Apple Silicon (e.g., iPhone 15/16 Pro)?**
    - What we know: Mobile Safari exposes `deviceMemory` as undefined or clamped to 4 or 8, and reports WebGPU or WebGL2 with large texture sizes, but mobile thermal throttling occurs if run continuously at 60 FPS 1080p.
    - What's unclear: Whether mobile devices should ever be automatically assigned `High` tier.
    - Recommendation: Default mobile devices (`isMobile === true`) to `Medium` tier initially, while allowing the user to explicitly select `High` via the Viewport HUD override popover.
+   - RESOLVED: Default mobile devices (`isMobile === true`) to `Medium` tier initially with user manual `High` override via Viewport HUD popover per Plan 01-03 Task 1.
 
 ## Environment Availability
 
