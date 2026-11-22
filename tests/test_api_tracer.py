@@ -89,7 +89,7 @@ async def test_chunk_upload_and_finalize_flow():
         job_token = init_data["job_token"]
 
         # Chunk upload without token -> 401 Unauthorized
-        chunk1 = b"RIFF\x00\x00\x00\x00WEBMmockchunk1"
+        chunk1 = b"\x1a\x45\xdf\xa3\x00\x00\x00\x00WEBMmockchunk1"
         bad_token_resp = await client.post(
             f"/api/export/{job_id}/chunk?chunk_index=0",
             content=chunk1,

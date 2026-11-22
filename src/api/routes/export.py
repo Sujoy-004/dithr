@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from src.api.config import config
 from src.api.jobs import ExportJobManager
 from src.api.limiter import limiter
+from src.api.magic import validate_magic_bytes
 from src.api.security import (
     consume_download_token,
     get_trusted_client_ip,
@@ -35,6 +36,8 @@ from src.api.transcode import run_ffmpeg_transcode, validate_assembled_media
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["export"])
+
+MAX_TOTAL_BYTES: int = 50 * 1024 * 1024  # 50 MB ceiling per RELY-02
 
 
 async def _execute_transcode_job(job_id: str) -> None:
@@ -175,6 +178,22 @@ async def upload_chunk(
     chunk_bytes = await request.body()
     chunk_len = len(chunk_bytes)
 
+    # 50MB upload ceiling per RELY-02
+    if chunk_len > MAX_TOTAL_BYTES or job.total_uploaded_bytes + chunk_len > MAX_TOTAL_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File exceeds 50MB limit. Select a shorter clip or compress input media under 50MB.",
+        )
+
+    # Magic byte validation on initial chunk per RELY-02
+    if chunk_index == 0:
+        if not validate_magic_bytes(chunk_bytes[:16], {"webm"}):
+            manager.cancel_job(job_id, "Invalid container magic bytes")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported file format. The file header does not match a valid WebM container.",
+            )
+
     # Individual chunk size check per D-07
     if chunk_len > config.max_chunk_bytes:
         raise HTTPException(
@@ -213,7 +232,9 @@ async def upload_chunk(
 
 
 @router.post("/{job_id}/source-audio")
+@limiter.limit("5/minute")
 async def upload_source_audio(
+    request: Request,
     job_id: str,
     file: UploadFile = File(...),
     x_job_token: Annotated[str | None, Header(alias="X-Job-Token")] = None,
@@ -232,11 +253,26 @@ async def upload_source_audio(
             detail="Invalid or missing X-Job-Token header.",
         )
 
+    content = await file.read()
+
+    # 50MB payload limit per RELY-02
+    if len(content) > MAX_TOTAL_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File exceeds 50MB limit. Select a shorter clip or compress input media under 50MB.",
+        )
+
+    # Magic byte inspection against supported audio/video container formats
+    if not validate_magic_bytes(content[:16], {"mp4", "webm", "wav", "mp3"}):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported file format. The file header does not match a valid PNG, JPEG, WebM, or MP4 container.",
+        )
+
     job_dir = manager.get_job_dir(job_id)
     ext = Path(file.filename or "audio").suffix or ".mp4"
     audio_path = job_dir / f"source_audio{ext}"
 
-    content = await file.read()
     with open(audio_path, "wb") as f:
         f.write(content)
 
