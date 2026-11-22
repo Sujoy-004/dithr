@@ -9,16 +9,16 @@ Requirements for Milestone v2.0 Professional Studio. Each maps to roadmap phases
 
 ### Reliability, Security & Testing Foundation
 
-- [ ] **RELY-01**: User or operator can cancel an ongoing export job via UI or API and immediately terminate the backend FFmpeg subprocess (`os.killpg`) without leaving zombie processes or uncleaned temporary files.
-- [ ] **RELY-02**: System rejects media and audio uploads exceeding 50MB, enforces rate limits on audio endpoints (`5/minute`), and validates file magic bytes to prevent malformed or malicious binary injection.
-- [ ] **RELY-03**: User can export client-side WebM video clips from video media with audio, producing synchronized video and audio tracks in the resulting media file.
-- [ ] **RELY-04**: User can export client-side animated GIF clips that capture sequential, distinct animated frames across time rather than repeating a single canvas snapshot.
-- [ ] **RELY-05**: Developer can run automated unit and component tests for `web/` using Vitest with zero failures across UI components, math routines, and export drivers.
-- [ ] **RELY-06**: Developer can run automated browser E2E tests using Playwright with WebGPU/WebGL flags verifying canvas rendering, media upload, HUD interactions, and export flows.
-- [ ] **RELY-07**: Developer can run automated property-based API contract tests verifying FastAPI OpenAPI endpoints against schema drifts, boundary values, and unauthorized requests.
-- [ ] **RELY-08**: Developer can run the test suite and verify that the Python terminal player is completely retired as a product surface, with the render loop restricted to test execution and zero FFplay production dependency.
-- [ ] **RELY-09**: System detects client GPU capabilities (WebGPU vs WebGL2, max texture size, memory limits) and dynamically adapts render resolution and shader quality tiers.
-- [ ] **RELY-10**: System pauses canvas render loops and audio polling via `contentvisibilityautostatechange` when the studio viewport is hidden or off-screen, conserving CPU, GPU VRAM, and battery.
+- [x] **RELY-01**: User or operator can cancel an ongoing export job via UI or API and immediately terminate the backend FFmpeg subprocess (`os.killpg`) without leaving zombie processes or uncleaned temporary files.
+- [x] **RELY-02**: System rejects media and audio uploads exceeding 50MB, enforces rate limits on audio endpoints (`5/minute`), and validates file magic bytes to prevent malformed or malicious binary injection.
+- [x] **RELY-03**: User can export client-side WebM video clips from video media with audio, producing synchronized video and audio tracks in the resulting media file.
+- [x] **RELY-04**: User can export client-side animated GIF clips that capture sequential, distinct animated frames across time rather than repeating a single canvas snapshot.
+- [x] **RELY-05**: Developer can run automated unit and component tests for `web/` using Vitest with zero failures across UI components, math routines, and export drivers.
+- [x] **RELY-06**: Developer can run automated browser E2E tests using Playwright with WebGPU/WebGL flags verifying canvas rendering, media upload, HUD interactions, and export flows.
+- [x] **RELY-07**: Developer can run automated property-based API contract tests verifying FastAPI OpenAPI endpoints against schema drifts, boundary values, and unauthorized requests.
+- [x] **RELY-08**: Developer can run the test suite and verify that the Python terminal player is completely retired as a product surface, with the render loop restricted to test execution and zero FFplay production dependency.
+- [x] **RELY-09**: System detects client GPU capabilities (WebGPU vs WebGL2, max texture size, memory limits) and dynamically adapts render resolution and shader quality tiers.
+- [x] **RELY-10**: System pauses canvas render loops and audio polling via `contentvisibilityautostatechange` when the studio viewport is hidden or off-screen, conserving CPU, GPU VRAM, and battery.
 
 ### Shader Engine 2.0 & Advanced FX
 
@@ -74,16 +74,16 @@ Which phases cover which requirements. (Populated during roadmap creation).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RELY-01 | Phase 1 | Pending |
-| RELY-02 | Phase 1 | Pending |
-| RELY-03 | Phase 1 | Pending |
-| RELY-04 | Phase 1 | Pending |
-| RELY-05 | Phase 1 | Pending |
-| RELY-06 | Phase 1 | Pending |
-| RELY-07 | Phase 1 | Pending |
-| RELY-08 | Phase 1 | Pending |
-| RELY-09 | Phase 1 | Pending |
-| RELY-10 | Phase 1 | Pending |
+| RELY-01 | Phase 1 | Complete |
+| RELY-02 | Phase 1 | Complete |
+| RELY-03 | Phase 1 | Complete |
+| RELY-04 | Phase 1 | Complete |
+| RELY-05 | Phase 1 | Complete |
+| RELY-06 | Phase 1 | Complete |
+| RELY-07 | Phase 1 | Complete |
+| RELY-08 | Phase 1 | Complete |
+| RELY-09 | Phase 1 | Complete |
+| RELY-10 | Phase 1 | Complete |
 | FX-01 | Phase 2 | Pending |
 | FX-02 | Phase 2 | Pending |
 | FX-03 | Phase 2 | Pending |
