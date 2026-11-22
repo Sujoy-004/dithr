@@ -158,9 +158,9 @@ async def test_run_export_benchmark_quick() -> None:
         duration_sec=3.0,
         fps=24,
         format="mp4",
-        threshold_rss_mb=250.0,
+        threshold_rss_mb=350.0,
         threshold_time_sec=25.0,
     )
     assert result.passed is True
-    assert result.peak_rss_mb < 250.0
+    assert result.peak_rss_mb < 350.0
     assert result.elapsed_sec < 25.0

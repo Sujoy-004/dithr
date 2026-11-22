@@ -35,7 +35,18 @@ from src.api.security import (
 from src.api.transcode import run_ffmpeg_transcode, validate_assembled_media
 
 logger = logging.getLogger(__name__)
-router = APIRouter(tags=["export"])
+
+EXPORT_RESPONSES = {
+    400: {"description": "Bad Request / Format Validation Failure"},
+    401: {"description": "Unauthorized / Invalid Job Token"},
+    403: {"description": "Forbidden / Turnstile Verification Failure"},
+    404: {"description": "Job Not Found / Expired"},
+    413: {"description": "Payload Too Large / Exceeds 50MB Limit"},
+    429: {"description": "Rate Limit Exceeded"},
+    503: {"description": "Server Busy / Concurrency Lock Active"},
+}
+
+router = APIRouter(tags=["export"], responses=EXPORT_RESPONSES)
 
 MAX_TOTAL_BYTES: int = 50 * 1024 * 1024  # 50 MB ceiling per RELY-02
 
@@ -100,7 +111,7 @@ async def init_export(
     fmt = body.format.lower().strip()
     if fmt not in {"mp4", "gif"}:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported export format '{fmt}'. Allowed formats: 'mp4', 'gif'.",
         )
 
@@ -108,7 +119,7 @@ async def init_export(
     max_duration = config.max_gif_duration if fmt == "gif" else config.max_video_duration
     if body.duration <= 0 or body.duration > max_duration:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Invalid duration {body.duration}s for format '{fmt}'. "
                 f"Must be between 0.1s and {max_duration}s."
@@ -119,7 +130,7 @@ async def init_export(
     max_fps = 15 if fmt == "gif" else 60
     if body.fps < 1 or body.fps > max_fps:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid FPS {body.fps} for format '{fmt}'. Must be between 1 and {max_fps}.",
         )
 
