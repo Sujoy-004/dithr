@@ -1,12 +1,33 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v2.0",
-  "phases": [],
+  "milestone": "v2.0 — Professional Studio",
+  "phases": [
+    {
+      "number": "1",
+      "name": "Reliability & Performance Foundation",
+      "status": "pending"
+    },
+    {
+      "number": "2",
+      "name": "Shader Engine 2.0 & Advanced FX",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "Creative Workspace & Export Studio",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "Persistence, Community & Distribution",
+      "status": "pending"
+    }
+  ],
   "next": {
-    "command": "/gsd-discuss-phase",
-    "label": "Discuss the first phase",
-    "reason": "Project initialized — plan your first phase"
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 1 of 4 · 0% · executing"
   },
-  "updated_at": "2026-11-21T03:42:37.760Z"
+  "updated_at": "2026-11-22T02:51:46.407Z"
 }
