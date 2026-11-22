@@ -8,6 +8,7 @@ import type {
   ThemeMode,
   ToneSettings,
 } from '../types/studio';
+import type { QualityTier, GpuCapabilities } from '../engine/capabilities';
 
 interface Pan {
   x: number;
@@ -79,6 +80,17 @@ interface StudioState extends MediaState {
   togglePlay: () => void;
   stopVideo: () => void;
   toggleMute: () => void;
+
+  // GPU Capabilities & Quality Tiers (D-08, RELY-09, RELY-10)
+  detectedTier: QualityTier;
+  activeTier: QualityTier;
+  tierOverride: QualityTier | null;
+  gpuEngine: 'webgpu' | 'webgl2';
+  maxTextureSize: number;
+  renderStatus: 'active' | 'paused';
+  setDetectedCapabilities: (caps: GpuCapabilities) => void;
+  setTierOverride: (tier: QualityTier | null) => void;
+  setRenderStatus: (status: 'active' | 'paused') => void;
 }
 
 export const DEFAULT_TONE: ToneSettings = {
@@ -248,6 +260,34 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   toggleRightRail: () => set((s) => ({ rightCollapsed: !s.rightCollapsed })),
   setLeftCollapsed: (collapsed) => set({ leftCollapsed: collapsed }),
   setRightCollapsed: (collapsed) => set({ rightCollapsed: collapsed }),
+
+  // GPU Capabilities & Quality Tiers
+  detectedTier: 'high',
+  activeTier: 'high',
+  tierOverride: null,
+  gpuEngine: 'webgpu',
+  maxTextureSize: 8192,
+  renderStatus: 'active',
+
+  setDetectedCapabilities: (caps: GpuCapabilities) => {
+    set((state) => ({
+      detectedTier: caps.tier,
+      activeTier: state.tierOverride ?? caps.tier,
+      gpuEngine: caps.engine,
+      maxTextureSize: caps.maxTextureSize,
+    }));
+  },
+
+  setTierOverride: (tier: QualityTier | null) => {
+    set((state) => ({
+      tierOverride: tier,
+      activeTier: tier ?? state.detectedTier,
+    }));
+  },
+
+  setRenderStatus: (renderStatus: 'active' | 'paused') => {
+    set({ renderStatus });
+  },
 
   // Video playback
   isPlaying: false,
