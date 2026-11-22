@@ -1,30 +1,30 @@
 <!-- generated-by: gsd-doc-writer -->
-# RGB ASCII & Retro FX Studio
+# dithr
 
-Real-time retro visual effects and ASCII studio for images, videos, and live webcam streams across browser, headless API, and terminal interfaces.
+Real-time retro visual transformations, shaders, and ASCII studio for images, videos, and live webcam streams across browser, headless API, and client export pipelines.
 
 [![CI](https://github.com/Sujoy-004/ASCII/actions/workflows/ci.yml/badge.svg)](https://github.com/Sujoy-004/ASCII/actions/workflows/ci.yml)
-[![Live Studio](https://img.shields.io/badge/Live%20Studio-rgb--ascii.pages.dev%2Fstudio-00f0ff?style=for-the-badge&logo=cloudflarepages&logoColor=black)](https://rgb-ascii.pages.dev/studio/)
+[![Live Studio](https://img.shields.io/badge/Live%20Studio-dithr.pages.dev%2Fstudio-00f0ff?style=for-the-badge&logo=cloudflarepages&logoColor=black)](https://dithr.pages.dev/studio/)
 [![Python Version](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![WebGPU](https://img.shields.io/badge/WebGPU-Three.js%20TSL-990000?style=for-the-badge&logo=webgpu&logoColor=white)](https://threejs.org/)
 
-![RGB ASCII & Retro FX Studio real-time browser demonstration showing original graphic transformation into ASCII glyph art, Bayer dither, and VHS scanlines](assets/demo/rgb-ascii-studio-demo.gif)
+![dithr real-time browser demonstration showing original graphic transformation into ASCII glyph art, Bayer dither, and VHS scanlines](assets/demo/rgb-ascii-studio-demo.gif)
 
-> 🚀 **Live Studio:** [rgb-ascii.pages.dev/studio/](https://rgb-ascii.pages.dev/studio/) &nbsp;|&nbsp; 🌐 **Product Overview:** [rgb-ascii.pages.dev](https://rgb-ascii.pages.dev) &nbsp;|&nbsp; ⚡ **Quick Start:** `cd web && npm install && npm run dev`
+> 🚀 **Live Studio:** [dithr.pages.dev/studio/](https://dithr.pages.dev/studio/) &nbsp;|&nbsp; 🌐 **Product Overview:** [dithr.pages.dev](https://dithr.pages.dev) &nbsp;|&nbsp; ⚡ **Quick Start:** `cd web && npm install && npm run dev`
 
 ---
 
 ## Overview
 
-**RGB ASCII & Retro FX Studio** transforms digital media into stylized retro computer graphics. It pairs a zero-install WebGPU browser studio with a standard-library Python terminal player and a high-performance FastAPI/FFmpeg export service.
+**dithr** transforms digital media into stylized retro computer graphics. It pairs a zero-install WebGPU browser studio with a high-performance FastAPI/FFmpeg export microservice.
 
-- **Browser Studio**: Interactive WebGPU/TSL canvas featuring 16 real-time retro shaders (ASCII glyph atlas, Floyd-Steinberg and Bayer dithering, halftone dot screens, matrix digital rain, VHS/CRT scanlines, directional pixel sorting, blockify, and Rec. 601 pre-tone controls).
-- **Terminal Player**: Python CLI delivering 24-bit ANSI True Color playback directly in modern terminals, synchronized with FFplay audio streaming and adaptive frame rate load shedding.
-- **Export Backend**: Production FastAPI microservice running bounded FFmpeg transcoding pipelines to render and download full-resolution MP4 clips and animated GIFs.
+- **Browser Studio**: Interactive WebGPU/TSL canvas featuring 16 real-time retro shaders (ASCII glyph atlas, Floyd-Steinberg and Bayer dithering, halftone dot screens, matrix digital rain, VHS/CRT scanlines, directional pixel sorting, blockify, and Rec. 601 pre-tone controls) with client GPU capability tier detection and idle render scheduling.
+- **Export Backend**: Production FastAPI microservice (`dithr-api`) running bounded FFmpeg transcoding pipelines to render and download full-resolution MP4 clips and animated GIFs with audio synchronization.
+- **Hermetic Testing Fixtures**: Python renderer modules (`src/renderer.py`, `src/sync.py`) are strictly preserved as deterministic offline test fixtures for regression testing.
 
-🌐 **Product Overview:** [https://rgb-ascii.pages.dev](https://rgb-ascii.pages.dev)  
-🚀 **Interactive Studio:** [https://rgb-ascii.pages.dev/studio/](https://rgb-ascii.pages.dev/studio/)
+🌐 **Product Overview:** [https://dithr.pages.dev](https://dithr.pages.dev)  
+🚀 **Interactive Studio:** [https://dithr.pages.dev/studio/](https://dithr.pages.dev/studio/)
 
 ### Quick Start (One Command)
 
@@ -40,104 +40,44 @@ git clone https://github.com/Sujoy-004/ASCII.git && cd ASCII/web && npm install 
 
 ### Prerequisites
 
-- **Python**: `>= 3.10`
 - **Node.js**: `>= 18.0.0` (for web development or local frontend builds)
-- **FFmpeg & FFplay**: Required on system `PATH` for video decoding and audio playback in the terminal CLI and export backend.
-
-### Python Package & CLI
-
-Install the core package and CLI entry point locally:
-
-```bash
-# Clone the repository
-git clone https://github.com/Sujoy-004/ASCII.git
-cd ASCII
-
-# Install in editable mode
-pip install -e .
-```
-
-To run the test suite and development tools, install development dependencies:
-
-```bash
-pip install -r requirements.txt
-```
+- **Python**: `>= 3.10` (for FastAPI backend export service or test suite execution)
+- **FFmpeg**: Server-side binary for video and audio transcoding on the backend export service.
 
 ### Web Frontend Studio
 
 ```bash
 cd web
 npm install
-```
-
----
-
-## Quick Start
-
-### 1. Launch the Terminal Video Player
-
-Play any video file directly in your ANSI 24-bit True Color terminal:
-
-```bash
-# Using the console entrypoint
-rgb-ascii path/to/video.mp4
-
-# Or run directly as a module
-python -m src.main path/to/video.mp4
-```
-
-### 2. Run the Local Web Studio
-
-Start the Vite development server with hot module reloading:
-
-```bash
-cd web
 npm run dev
 ```
 
-Open `http://localhost:5173/studio/` in any modern browser supporting WebGPU or WebGL2 (or visit `http://localhost:5173` for the landing page).
+### Python Package & Backend Service
 
-### 3. Start the Export API Service
-
-Run the FastAPI backend with Uvicorn:
+To run the FastAPI export backend locally:
 
 ```bash
-uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+# Clone the repository
+git clone https://github.com/Sujoy-004/ASCII.git
+cd ASCII
+
+# Install dependencies
+pip install -r requirements.txt
+pip install -e .
 ```
 
-Health check endpoint: `http://localhost:8000/health`.
-
----
-
-## Usage Examples
-
-### Terminal CLI Options
+To run the automated test pyramid:
 
 ```bash
-# Play video with double vertical color density using upper-half block characters (▀)
-rgb-ascii input.mp4 --half-block
+# Backend pytest suite (unit, integration, Schemathesis ASGI contract tests)
+pytest -q
 
-# Use dense 70-character luminance ramp without audio playback
-rgb-ascii input.mp4 --preset dense --no-audio
+# Frontend Vitest unit tests
+npm --prefix web run test:unit
 
-# Disable ANSI True Color escapes for high-contrast monochrome ASCII
-rgb-ascii input.mp4 --no-color
-
-# Enable temporal alpha smoothing (0.2 blend toward incoming frames)
-rgb-ascii input.mp4 --smoothing 0.2
-
-# Custom ASCII character ramp (darkest to brightest)
-rgb-ascii input.mp4 --chars " .:*#@"
+# Headless browser Playwright E2E tests (SwiftShader)
+cd web && npx playwright test
 ```
-
-### Web Studio Features
-
-1. **Load Media**: Drag and drop images (`PNG`, `JPG`, `WebP`, `GIF`) or videos (`MP4`, `WebM`), or stream live video from your webcam.
-2. **Apply Shaders**: Switch between 16 primary shader modes on the left rail (`ascii`, `dither`, `halftone`, `vhs`, `matrix`, `dots`, `pixelSort`, `blockify`, etc.).
-3. **Tune Parameters**: Adjust cell size, screen angles, matrix speed, color glitches, and Rec. 601 pre-tone curves (brightness, contrast, saturation, gamma, invert).
-4. **Export Results**:
-   - Client-side: Lossless PNG, JPEG, animated GIF (up to 5s), WebM recording, raw ASCII text, or vector SVG.
-   - Server-side: High-resolution MP4 video and animated GIF transcoding with source audio track preservation.
 
 ---
 
