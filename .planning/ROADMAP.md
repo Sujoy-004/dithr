@@ -18,7 +18,7 @@
 
 ### v2.0 Professional Studio
 
-- [ ] **Phase 1: Reliability & Performance Foundation** - P0 security and cancellation fixes, synchronized media recorder, Vitest + Playwright + API contract test suite, terminal player retirement, and intelligent render scheduling.
+- [x] **Phase 1: Reliability & Performance Foundation** (5/5 plans) — completed 2026-11-22
 - [ ] **Phase 2: Shader Engine 2.0 & Advanced FX** - Composable TSL multi-effect pass pipeline, corrected Rec. 601/709 color math, Web Audio FFT audio reactivity, advanced CRT/VHS analog emulation, and 3D ASCII point cloud rendering.
 - [ ] **Phase 3: Creative Workspace & Export Studio** - Non-destructive Undo/Redo history stack, session crash recovery, multi-layer composition, keyframe parameter timeline, before/after split view, and preview-faithful export queue.
 - [ ] **Phase 4: Persistence, Community & Distribution** - Named projects in IndexedDB (`idb`) with autosave, compressed URL hash preset sharing (`lz-string`), optional Neon PostgreSQL cloud sync, and embeddable web component package.
@@ -37,14 +37,14 @@
   4. Vitest unit tests in `web/`, Playwright headless browser E2E tests, and FastAPI property-based contract tests run in CI and pass with zero failures.
   5. Python terminal player entry point is archived; Python render loop is restricted to test fixtures; FFplay is removed from production runtime dependencies.
   6. System detects GPU capabilities and pauses render loop via `contentvisibilityautostatechange` when the viewport is hidden or off-screen.
-**Plans:** 1/5 plans executed
+**Plans:** 5/5 plans executed
 
 Plans:
 - [x] 01-01-PLAN.md — Export Cancellation Subprocess Lifecycle & Ingress Security
-- [ ] 01-02-PLAN.md — Client Recording Synchronization & Web Worker Animated GIF Export
-- [ ] 01-03-PLAN.md — Client GPU Capability Tiers & Intelligent Idle Render Scheduling
-- [ ] 01-04-PLAN.md — Automated Testing Pyramid: Vitest, Playwright E2E & Schemathesis Contract Fuzzing
-- [ ] 01-05-PLAN.md — Terminal Player Retirement & Atomic Rebrand to dithr
+- [x] 01-02-PLAN.md — Client Recording Synchronization & Web Worker Animated GIF Export
+- [x] 01-03-PLAN.md — Client GPU Capability Tiers & Intelligent Idle Render Scheduling
+- [x] 01-04-PLAN.md — Automated Testing Pyramid: Vitest, Playwright E2E & Schemathesis Contract Fuzzing
+- [x] 01-05-PLAN.md — Terminal Player Retirement & Atomic Rebrand to dithr
 
 ---
 
@@ -103,7 +103,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Reliability & Performance Foundation | 1/5 | Planning complete | - |
+| 1. Reliability & Performance Foundation | 5/5 | Planning complete | - |
 | 2. Shader Engine 2.0 & Advanced FX | 0/0 | Not started | - |
 | 3. Creative Workspace & Export Studio | 0/0 | Not started | - |
 | 4. Persistence, Community & Distribution | 0/0 | Not started | - |
