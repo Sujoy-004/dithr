@@ -2,6 +2,10 @@ import { create } from 'zustand';
 import type {
   ActiveEffectPass,
   AsciiSettings,
+  AudioMapping,
+  AudioSourceType,
+  AudioState,
+  AudioStatusType,
   BlendMode,
   Dimensions,
   EffectMode,
@@ -109,6 +113,17 @@ interface StudioState extends MediaState {
   setDetectedCapabilities: (caps: GpuCapabilities) => void;
   setTierOverride: (tier: QualityTier | null) => void;
   setRenderStatus: (status: 'active' | 'paused') => void;
+
+  // Audio Reactivity Engine (D-10, D-11, D-12, D-13, D-14, FX-05)
+  audioState: AudioState;
+  setAudioEnabled: (enabled: boolean) => void;
+  setAudioSource: (source: AudioSourceType) => void;
+  setAudioStatus: (status: AudioStatusType) => void;
+  setAudioSensitivity: (sensitivity: number) => void;
+  setAudioEnvelopePreset: (preset: 'punchy' | 'standard' | 'smooth') => void;
+  addAudioMapping: (mapping: Omit<AudioMapping, 'id'>) => void;
+  removeAudioMapping: (id: string) => void;
+  updateAudioMapping: (id: string, patch: Partial<AudioMapping>) => void;
 }
 
 export const DEFAULT_TONE: ToneSettings = {
@@ -162,6 +177,15 @@ export const DEFAULT_INITIAL_STACK: ActiveEffectPass[] = [
     },
   },
 ];
+
+export const DEFAULT_AUDIO_STATE: AudioState = {
+  enabled: false,
+  source: 'media',
+  status: 'off',
+  sensitivity: 1.0,
+  envelopePreset: 'standard',
+  mappings: [],
+};
 
 const DEFAULT_PAN: Pan = { x: 0, y: 0 };
 const DEFAULT_ZOOM = 1;
@@ -347,10 +371,17 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         nextSelectedId = next[fallbackIdx]?.instanceId ?? null;
       }
     }
+    const nextMappings = state.audioState.mappings.filter(
+      (m) => m.passInstanceId !== instanceId
+    );
     activePipeline?.syncStack(next, state.activeTier);
     set({
       activeStack: next,
       selectedPassId: nextSelectedId,
+      audioState: {
+        ...state.audioState,
+        mappings: nextMappings,
+      },
     });
   },
 
@@ -508,6 +539,74 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   setRenderStatus: (renderStatus: 'active' | 'paused') => {
     set({ renderStatus });
   },
+
+  // Audio Reactivity Engine (D-10, D-11, D-12, D-13, D-14, FX-05)
+  audioState: DEFAULT_AUDIO_STATE,
+
+  setAudioEnabled: (enabled) =>
+    set((state) => ({
+      audioState: {
+        ...state.audioState,
+        enabled,
+        status: enabled
+          ? state.audioState.status === 'off'
+            ? 'waiting'
+            : state.audioState.status
+          : 'off',
+      },
+    })),
+
+  setAudioSource: (source) =>
+    set((state) => ({
+      audioState: { ...state.audioState, source },
+    })),
+
+  setAudioStatus: (status) =>
+    set((state) => ({
+      audioState: { ...state.audioState, status },
+    })),
+
+  setAudioSensitivity: (sensitivity) =>
+    set((state) => ({
+      audioState: {
+        ...state.audioState,
+        sensitivity: Math.max(0.1, Math.min(3.0, sensitivity)),
+      },
+    })),
+
+  setAudioEnvelopePreset: (envelopePreset) =>
+    set((state) => ({
+      audioState: { ...state.audioState, envelopePreset },
+    })),
+
+  addAudioMapping: (mapping) => {
+    const id = generateInstanceId('audio-map');
+    const newMapping: AudioMapping = { ...mapping, id };
+    set((state) => ({
+      audioState: {
+        ...state.audioState,
+        mappings: [...state.audioState.mappings, newMapping],
+      },
+    }));
+  },
+
+  removeAudioMapping: (id) =>
+    set((state) => ({
+      audioState: {
+        ...state.audioState,
+        mappings: state.audioState.mappings.filter((m) => m.id !== id),
+      },
+    })),
+
+  updateAudioMapping: (id, patch) =>
+    set((state) => ({
+      audioState: {
+        ...state.audioState,
+        mappings: state.audioState.mappings.map((m) =>
+          m.id === id ? { ...m, ...patch } : m
+        ),
+      },
+    })),
 
   // Video playback
   isPlaying: false,

@@ -66,6 +66,28 @@ export interface Dimensions {
   height: number;
 }
 
+/** Audio reactivity types (D-10, D-11, D-12, D-13, D-14, FX-05). */
+export type AudioSourceType = 'media' | 'mic';
+export type AudioStatusType = 'off' | 'waiting' | 'live' | 'denied' | 'unavailable';
+export type AudioFrequencyBand = 'bass' | 'mid' | 'treble';
+
+export interface AudioMapping {
+  id: string;
+  passInstanceId: string;
+  paramKey: string;
+  band: AudioFrequencyBand;
+  amount: number; // [-1.0, 1.0]
+}
+
+export interface AudioState {
+  enabled: boolean;
+  source: AudioSourceType;
+  status: AudioStatusType;
+  sensitivity: number;
+  envelopePreset: 'punchy' | 'standard' | 'smooth';
+  mappings: AudioMapping[];
+}
+
 /** Export targets for the client-side export suite (D-08). */
 export type ExportFormat = 'png' | 'jpeg' | 'svg' | 'txt' | 'gif' | 'webm';
 

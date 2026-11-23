@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useStudioStore } from '../../store/useStudioStore';
 import { getEffectDefinition } from '../../engine/registry';
 import EffectInspector from '../panels/EffectInspector';
+import AudioPanel from '../panels/AudioPanel';
 import ToneControls from '../panels/ToneControls';
 import ExportDrawer from '../panels/ExportDrawer';
 
@@ -15,6 +16,7 @@ export default function RightRail() {
   const toggleLeftRail = useStudioStore((s) => s.toggleLeftRail);
   const activeStack = useStudioStore((s) => s.activeStack);
   const selectedPassId = useStudioStore((s) => s.selectedPassId);
+  const audioState = useStudioStore((s) => s.audioState);
 
   const selectedPass = activeStack.find((p) => p.instanceId === selectedPassId);
   const def = selectedPass ? getEffectDefinition(selectedPass.effectId) : undefined;
@@ -55,6 +57,12 @@ export default function RightRail() {
         <div className="px-4 pb-3">
           <EffectInspector />
         </div>
+
+        <GroupHeader
+          title="audio reactivity"
+          state={audioState.enabled && audioState.status === 'live' ? 'live' : 'off'}
+        />
+        <AudioPanel />
 
         <GroupHeader title="pre-tone" state="rec.601" />
         <ToneControls />

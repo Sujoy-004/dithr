@@ -1,4 +1,6 @@
+import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import {
   getSharedAudioContext,
   getSharedAnalyserNode,
@@ -14,6 +16,12 @@ import {
   AudioReactivityEngine,
   AUDIO_ENVELOPE_PRESETS,
 } from '../engine/audio/AudioReactivityEngine';
+import {
+  useStudioStore,
+  DEFAULT_AUDIO_STATE,
+  DEFAULT_INITIAL_STACK,
+} from '../store/useStudioStore';
+import AudioPanel from '../components/panels/AudioPanel';
 
 describe('audioGraph Web Audio Singleton & Analyser (D-10, D-12, D-13, FX-05)', () => {
   beforeEach(() => {
@@ -253,5 +261,146 @@ describe('AudioReactivityEngine & Envelope Smoothing (D-11, D-12, D-14, FX-05)',
     engine.setPreset('smooth');
     expect(engine.attackMs).toBe(AUDIO_ENVELOPE_PRESETS.smooth.attackMs);
     expect(engine.releaseMs).toBe(AUDIO_ENVELOPE_PRESETS.smooth.releaseMs);
+  });
+});
+
+describe('useStudioStore audioState & AudioPanel UI (D-10, D-11, D-13, FX-05)', () => {
+  beforeEach(() => {
+    cleanupAudioGraph();
+    useStudioStore.setState({
+      activeStack: structuredClone(DEFAULT_INITIAL_STACK),
+      selectedPassId: DEFAULT_INITIAL_STACK[0].instanceId,
+      audioState: structuredClone(DEFAULT_AUDIO_STATE),
+    });
+  });
+
+  afterEach(() => {
+    cleanupAudioGraph();
+    vi.restoreAllMocks();
+  });
+
+  it('manages audioState actions (enable, source, sensitivity, preset, mappings)', () => {
+    const store = useStudioStore.getState();
+
+    // 1. Initial defaults
+    expect(store.audioState.enabled).toBe(false);
+    expect(store.audioState.status).toBe('off');
+    expect(store.audioState.source).toBe('media');
+    expect(store.audioState.sensitivity).toBe(1.0);
+    expect(store.audioState.envelopePreset).toBe('standard');
+    expect(store.audioState.mappings).toHaveLength(0);
+
+    // 2. Enable audio
+    store.setAudioEnabled(true);
+    expect(useStudioStore.getState().audioState.enabled).toBe(true);
+    expect(useStudioStore.getState().audioState.status).toBe('waiting');
+
+    // 3. Set source & sensitivity
+    store.setAudioSource('mic');
+    expect(useStudioStore.getState().audioState.source).toBe('mic');
+
+    store.setAudioSensitivity(2.5);
+    expect(useStudioStore.getState().audioState.sensitivity).toBe(2.5);
+
+    // Clamping: max 3.0, min 0.1
+    store.setAudioSensitivity(5.0);
+    expect(useStudioStore.getState().audioState.sensitivity).toBe(3.0);
+    store.setAudioSensitivity(0.01);
+    expect(useStudioStore.getState().audioState.sensitivity).toBe(0.1);
+
+    // 4. Envelope presets
+    store.setAudioEnvelopePreset('punchy');
+    expect(useStudioStore.getState().audioState.envelopePreset).toBe('punchy');
+
+    // 5. Add, update, and remove mappings
+    store.addAudioMapping({
+      passInstanceId: 'initial-ascii',
+      paramKey: 'cellScale',
+      band: 'bass',
+      amount: 0.75,
+    });
+
+    const withMapping = useStudioStore.getState().audioState;
+    expect(withMapping.mappings).toHaveLength(1);
+    const mappingId = withMapping.mappings[0].id;
+    expect(withMapping.mappings[0].paramKey).toBe('cellScale');
+    expect(withMapping.mappings[0].band).toBe('bass');
+    expect(withMapping.mappings[0].amount).toBe(0.75);
+
+    store.updateAudioMapping(mappingId, { band: 'treble', amount: -0.5 });
+    expect(useStudioStore.getState().audioState.mappings[0].band).toBe('treble');
+    expect(useStudioStore.getState().audioState.mappings[0].amount).toBe(-0.5);
+
+    store.removeAudioMapping(mappingId);
+    expect(useStudioStore.getState().audioState.mappings).toHaveLength(0);
+  });
+
+  it('removeEffect automatically removes orphaned audio mappings for that pass', () => {
+    const store = useStudioStore.getState();
+    store.addAudioMapping({
+      passInstanceId: 'initial-ascii',
+      paramKey: 'cellScale',
+      band: 'bass',
+      amount: 0.5,
+    });
+    expect(useStudioStore.getState().audioState.mappings).toHaveLength(1);
+
+    // Remove the pass from the stack
+    store.removeEffect('initial-ascii');
+    expect(useStudioStore.getState().activeStack).toHaveLength(0);
+    expect(useStudioStore.getState().audioState.mappings).toHaveLength(0);
+  });
+
+  it('AudioPanel renders Enable Audio button, status chip, source buttons, and presets', () => {
+    render(React.createElement(AudioPanel));
+
+    // Enable button
+    expect(screen.getByRole('button', { name: /enable audio reactivity/i })).toBeInTheDocument();
+
+    // Status chip
+    expect(screen.getByRole('status')).toHaveTextContent(/off/i);
+
+    // Source radios
+    expect(screen.getByRole('radio', { name: /video audio/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /microphone/i })).toBeInTheDocument();
+
+    // Preset buttons
+    expect(screen.getByRole('button', { name: /punchy/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /standard/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /smooth/i })).toBeInTheDocument();
+  });
+
+  it('clicking Enable Audio activates the audio context and updates status to live', async () => {
+    render(React.createElement(AudioPanel));
+
+    const enableBtn = screen.getByRole('button', { name: /enable audio reactivity/i });
+    fireEvent.click(enableBtn);
+
+    // Context resumed and live
+    await waitFor(() => {
+      expect(useStudioStore.getState().audioState.enabled).toBe(true);
+      expect(useStudioStore.getState().audioState.status).toBe('live');
+    });
+    expect(screen.getByRole('status')).toHaveTextContent(/live/i);
+
+    // Clicking again disables audio
+    const disableBtn = screen.getByRole('button', { name: /disable audio reactivity/i });
+    fireEvent.click(disableBtn);
+
+    await waitFor(() => {
+      expect(useStudioStore.getState().audioState.enabled).toBe(false);
+      expect(useStudioStore.getState().audioState.status).toBe('off');
+    });
+  });
+
+  it('clicking Add Mapping creates a new mapping row with controls', () => {
+    render(React.createElement(AudioPanel));
+
+    const addBtn = screen.getByRole('button', { name: /add audio modulation mapping/i });
+    fireEvent.click(addBtn);
+
+    expect(useStudioStore.getState().audioState.mappings).toHaveLength(1);
+    expect(screen.getByLabelText(/modulation depth/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /remove modulation mapping/i })).toBeInTheDocument();
   });
 });

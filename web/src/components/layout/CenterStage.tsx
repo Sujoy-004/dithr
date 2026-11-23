@@ -4,6 +4,9 @@ import * as THREE from 'three/webgpu';
 import { useStudioStore, registerVideoElement, registerPipeline } from '../../store/useStudioStore';
 import { StudioPipeline } from '../../engine/Pipeline';
 import { detectGpuCapabilities, TIER_CONFIGS } from '../../engine/capabilities';
+import { AudioReactivityEngine } from '../../engine/audio/AudioReactivityEngine';
+import { getSharedAnalyserNode } from '../../export/audioGraph';
+import { getEffectDefinition } from '../../engine/registry';
 import ViewportHUD from '../canvas/ViewportHUD';
 import Dropzone from '../canvas/Dropzone';
 import MaskHandles from '../canvas/MaskHandles';
@@ -38,6 +41,7 @@ export default function CenterStage() {
   const setIsMuted = useStudioStore((s) => s.setIsMuted);
   const setPlaybackTime = useStudioStore((s) => s.setPlaybackTime);
   const setDuration = useStudioStore((s) => s.setDuration);
+  const audioState = useStudioStore((s) => s.audioState);
 
   const stageSectionRef = useRef<HTMLElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -45,6 +49,7 @@ export default function CenterStage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const animIdRef = useRef<number>(0);
   const isPausedRef = useRef<boolean>(false);
+  const audioEngineRef = useRef<AudioReactivityEngine>(new AudioReactivityEngine());
 
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(
     null,
@@ -79,7 +84,48 @@ export default function CenterStage() {
       const minInterval = 1000 / targetFps - 2; // small tolerance margin
 
       if (time - lastFrameTime >= minInterval) {
+        const deltaMs = Math.max(1, Math.min(100, time - lastFrameTime));
         lastFrameTime = time;
+
+        // Audio reactivity modulation (D-11, D-12, D-14, FX-05)
+        const currentAudioState = useStudioStore.getState().audioState;
+        if (
+          currentAudioState.enabled &&
+          currentAudioState.status === 'live' &&
+          audioEngineRef.current
+        ) {
+          const analyser = getSharedAnalyserNode();
+          audioEngineRef.current.sensitivity = currentAudioState.sensitivity;
+          audioEngineRef.current.setPreset(currentAudioState.envelopePreset);
+          const energies = audioEngineRef.current.update(analyser, deltaMs);
+
+          if (currentAudioState.mappings.length > 0) {
+            const currentStack = useStudioStore.getState().activeStack;
+            for (const mapping of currentAudioState.mappings) {
+              const pass = currentStack.find((p) => p.instanceId === mapping.passInstanceId);
+              if (!pass || !pass.enabled) continue;
+
+              const def = getEffectDefinition(pass.effectId);
+              if (!def) continue;
+
+              const schema = def.parameters[mapping.paramKey];
+              if (!schema || (schema.type !== 'float' && schema.type !== 'int')) continue;
+
+              const baseVal = Number(pass.parameters[mapping.paramKey] ?? schema.default);
+              const min = schema.min ?? 0;
+              const max = schema.max ?? 1;
+              const range = max - min;
+              const bandEnergy = energies[mapping.band];
+
+              const modulated = Math.min(
+                max,
+                Math.max(min, baseVal + bandEnergy * mapping.amount * range)
+              );
+              pipeline.updateUniform(mapping.passInstanceId, mapping.paramKey, modulated);
+            }
+          }
+        }
+
         pipeline.render((time - startTime) * 0.001);
       }
       animIdRef.current = requestAnimationFrame(loop);
@@ -197,6 +243,24 @@ export default function CenterStage() {
       }
     }
   }, [effectParams]);
+
+  // Restore base parameter uniforms when audio reactivity is disabled
+  useEffect(() => {
+    if (!audioState.enabled || audioState.status !== 'live') {
+      const pipeline = pipelineRef.current;
+      if (!pipeline) return;
+      for (const mapping of audioState.mappings) {
+        const pass = activeStack.find((p) => p.instanceId === mapping.passInstanceId);
+        if (pass && pass.parameters[mapping.paramKey] !== undefined) {
+          pipeline.updateUniform(
+            mapping.passInstanceId,
+            mapping.paramKey,
+            pass.parameters[mapping.paramKey]
+          );
+        }
+      }
+    }
+  }, [audioState.enabled, audioState.status, audioState.mappings, activeStack]);
 
   // 4. Adapt canvas sizing to quality tier and dimensions
   useEffect(() => {
