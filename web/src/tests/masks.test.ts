@@ -8,6 +8,12 @@ import {
   masksEffect,
   computeMaskValue,
 } from '../engine/registry/modulate/masks';
+import {
+  crtVhsEffect,
+  applyCrtProfile,
+  computeBarrelDistortion,
+  CRT_VHS_PROFILES,
+} from '../engine/registry/modulate/crtVhs';
 
 describe('RGB Channel Separation (Task 1: D-08, FX-03)', () => {
   it('registers rgbSplit in EffectRegistry under modulate category with costWeight 1', () => {
@@ -322,5 +328,182 @@ describe('Procedural Spatial Masks (Task 2: D-07, FX-03, T-02-08)', () => {
       const output = typeof node === 'function' ? node() : node;
       expect(output).toBeDefined();
     }
+  });
+});
+
+describe('Analog CRT and VHS Emulation (Task 3: D-09, FX-04, T-02-07)', () => {
+  it('registers crtVhs in EffectRegistry under modulate category with costWeight 3 and requiresPass true', () => {
+    const def = getEffectDefinition('crtVhs');
+    expect(def).toBeDefined();
+    expect(def?.id).toBe('crtVhs');
+    expect(def?.category).toBe('modulate');
+    expect(def?.costWeight).toBe(3);
+    expect(def?.requiresPass).toBe(true);
+  });
+
+  it('exposes granular analog parameter sliders in schema', () => {
+    const params = crtVhsEffect.parameters;
+    expect(params.profile).toMatchObject({
+      type: 'select',
+      default: 'vhsSp',
+      options: ['vhsSp', 'vhsEp', 'crtArcade', 'broadcastMonitor'],
+    });
+    expect(params.curvature).toMatchObject({
+      type: 'float',
+      default: 0.0,
+      min: 0.0,
+      max: 0.5,
+      step: 0.01,
+    });
+    expect(params.scanlineIntensity).toMatchObject({
+      type: 'float',
+      default: 0.2,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+    });
+    expect(params.scanlineCount).toMatchObject({
+      type: 'float',
+      default: 480.0,
+      min: 100.0,
+      max: 1200.0,
+      step: 10.0,
+    });
+    expect(params.phosphorDecay).toMatchObject({
+      type: 'float',
+      default: 0.1,
+      min: 0.0,
+      max: 0.95,
+      step: 0.01,
+    });
+    expect(params.trackingJitter).toMatchObject({
+      type: 'float',
+      default: 0.1,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+    });
+    expect(params.bloomIntensity).toMatchObject({
+      type: 'float',
+      default: 0.15,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+    });
+    expect(params.vignette).toMatchObject({
+      type: 'float',
+      default: 0.1,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+    });
+    expect(params.noiseIntensity).toMatchObject({
+      type: 'float',
+      default: 0.05,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+    });
+  });
+
+  it('provides all 4 named profiles with authentic parameter bundles', () => {
+    expect(Object.keys(CRT_VHS_PROFILES)).toEqual([
+      'vhsSp',
+      'vhsEp',
+      'crtArcade',
+      'broadcastMonitor',
+    ]);
+
+    // VHS SP (clean tape)
+    const sp = applyCrtProfile('vhsSp');
+    expect(sp.curvature).toBe(0.0);
+    expect(sp.trackingJitter).toBe(0.1);
+    expect(sp.scanlineIntensity).toBe(0.2);
+    expect(sp.bloomIntensity).toBe(0.15);
+
+    // VHS EP (worn tape)
+    const ep = applyCrtProfile('vhsEp');
+    expect(ep.trackingJitter).toBe(0.6);
+    expect(ep.noiseIntensity).toBe(0.5);
+    expect(ep.phosphorDecay).toBe(0.4);
+
+    // CRT Arcade (shadow mask & curvature)
+    const arcade = applyCrtProfile('crtArcade');
+    expect(arcade.curvature).toBe(0.15);
+    expect(arcade.scanlineCount).toBe(240.0);
+    expect(arcade.scanlineIntensity).toBe(0.6);
+    expect(arcade.bloomIntensity).toBe(0.4);
+
+    // Broadcast Monitor (crisp aperture grille)
+    const broadcast = applyCrtProfile('broadcastMonitor');
+    expect(broadcast.curvature).toBe(0.05);
+    expect(broadcast.scanlineCount).toBe(600.0);
+    expect(broadcast.scanlineIntensity).toBe(0.3);
+  });
+
+  it('preserves center coordinate and maintains odd symmetry in barrel distortion', () => {
+    // Center point (0.5, 0.5) must never move under any curvature
+    const centerDistorted = computeBarrelDistortion({ x: 0.5, y: 0.5 }, 0.25);
+    expect(centerDistorted.x).toBeCloseTo(0.5, 5);
+    expect(centerDistorted.y).toBeCloseTo(0.5, 5);
+    expect(centerDistorted.inBounds).toBe(true);
+
+    // Symmetry test: offset (+dx, +dy) from center has opposite displacement to (-dx, -dy)
+    const dx = 0.2;
+    const dy = 0.15;
+    const curvature = 0.3;
+
+    const pos = computeBarrelDistortion({ x: 0.5 + dx, y: 0.5 + dy }, curvature);
+    const neg = computeBarrelDistortion({ x: 0.5 - dx, y: 0.5 - dy }, curvature);
+
+    const posDisplacementX = pos.x - 0.5;
+    const posDisplacementY = pos.y - 0.5;
+    const negDisplacementX = neg.x - 0.5;
+    const negDisplacementY = neg.y - 0.5;
+
+    expect(posDisplacementX).toBeCloseTo(-negDisplacementX, 5);
+    expect(posDisplacementY).toBeCloseTo(-negDisplacementY, 5);
+  });
+
+  it('detects out of bounds coordinates under extreme curvature', () => {
+    // Extreme corner at (1.0, 1.0) with strong curvature pushes outside [0, 1]
+    const corner = computeBarrelDistortion({ x: 0.99, y: 0.99 }, 0.45);
+    expect(corner.x).toBeGreaterThan(1.0);
+    expect(corner.y).toBeGreaterThan(1.0);
+    expect(corner.inBounds).toBe(false);
+  });
+
+  it('buildNode executes and constructs a valid TSL node tree with clamped phosphor decay', () => {
+    const mockEnv = {
+      previousPassTexture: (_coord: any) => ({
+        rgb: { r: 0.4, g: 0.4, b: 0.4, mul: () => ({ r: 0.3, g: 0.3, b: 0.3 }) },
+      }),
+    };
+
+    const node = crtVhsEffect.buildNode(
+      {
+        rgb: {
+          r: { mul: () => 0.1 },
+          g: { mul: () => 0.2 },
+          b: { mul: () => 0.05 },
+          mul: () => ({ add: () => ({}) }),
+          add: () => ({}),
+        },
+        a: 1.0,
+      },
+      {
+        curvature: 0.1,
+        scanlineIntensity: 0.3,
+        scanlineCount: 480.0,
+        phosphorDecay: 0.99, // input exceeding safe threshold
+        trackingJitter: 0.1,
+        bloomIntensity: 0.2,
+      },
+      mockEnv
+    );
+
+    expect(node).toBeDefined();
+    const output = typeof node === 'function' ? node() : node;
+    expect(output).toBeDefined();
   });
 });

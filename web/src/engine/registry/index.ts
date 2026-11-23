@@ -28,6 +28,7 @@ import { contourEffect } from './stylize/contour';
 import { grainEffect } from './modulate/grain';
 import { rgbSplitEffect } from './modulate/rgbSplit';
 import { masksEffect } from './modulate/masks';
+import { crtVhsEffect } from './modulate/crtVhs';
 
 import { sRGBToLinear, linearTosRGB } from '../color/colorSpace';
 
@@ -50,6 +51,7 @@ export const ALL_EFFECT_DEFINITIONS: readonly EffectDefinition[] = [
   grainEffect,
   rgbSplitEffect,
   masksEffect,
+  crtVhsEffect,
 ] as const;
 
 /**
@@ -175,4 +177,5 @@ export {
   grainEffect,
   rgbSplitEffect,
   masksEffect,
+  crtVhsEffect,
 };
