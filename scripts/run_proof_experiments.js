@@ -270,46 +270,65 @@ async function applyStack(page, shaderIds) {
   await page.waitForTimeout(500);
 }
 
-async function recordCanvasClip(page, durationMs = 2000) {
-  return await page.evaluate(async (ms) => {
-    const canvas = document.querySelector('canvas[aria-label="Media viewport canvas"]');
-    const video = document.querySelector('video');
-    if (!canvas) throw new Error('Media viewport canvas not found');
-    if (video && video.paused) {
-      try { await video.play(); } catch(e) {}
-    }
+async function recordCanvasClip(page, durationMs = 2200) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await page.evaluate(async (ms) => {
+      const canvas = document.querySelector('canvas[aria-label="Media viewport canvas"]');
+      const video = document.querySelector('video');
+      if (!canvas) throw new Error('Media viewport canvas not found');
+      if (video) {
+        video.loop = true;
+        if (video.ended || video.currentTime >= video.duration - 0.5) {
+          video.currentTime = 0;
+        }
+        if (video.paused) {
+          try { await video.play(); } catch(e) {}
+        }
+      }
 
-    let mimeType = 'video/webm';
-    if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
-      mimeType = 'video/webm;codecs=vp9';
-    } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8')) {
-      mimeType = 'video/webm;codecs=vp8';
-    }
+      // Prioritize video/webm (VP8 default) for universal software canvas capture stability
+      const mimeType = 'video/webm';
+      const stream = canvas.captureStream(30);
+      const chunks = [];
 
-    const stream = canvas.captureStream(30);
-    const chunks = [];
-
-    return new Promise((resolve, reject) => {
-      const recorder = new MediaRecorder(stream, { mimeType });
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
-      recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: mimeType });
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const res = reader.result;
-          const base64 = typeof res === 'string' ? res.split(',')[1] : '';
-          resolve({ base64, mimeType, size: blob.size });
+      return new Promise((resolve, reject) => {
+        const recorder = new MediaRecorder(stream, { mimeType });
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
         };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      };
-      recorder.onerror = reject;
-      recorder.start(100);
-      setTimeout(() => recorder.stop(), ms);
-    });
-  }, durationMs);
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: mimeType });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const res = reader.result;
+            const base64 = typeof res === 'string' ? res.split(',')[1] : '';
+            resolve({ base64, mimeType, size: blob.size });
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        };
+        recorder.onerror = reject;
+        recorder.start(100);
+        setTimeout(() => {
+          try {
+            if (recorder.state === 'recording') {
+              recorder.requestData();
+              recorder.stop();
+            }
+          } catch (e) {
+            reject(e);
+          }
+        }, ms);
+      });
+    }, durationMs);
+
+    if (result && result.size > 0) {
+      return result;
+    }
+    console.warn(`[WARN] Canvas clip record attempt ${attempt + 1} returned 0 bytes, retrying...`);
+    await page.waitForTimeout(500);
+  }
+  throw new Error('Canvas recording returned empty buffer after retries');
 }
 
 function convertWebmToMp4(webmPath, mp4Path) {
@@ -531,6 +550,10 @@ async function main() {
 
   const videoPlaying = await page.evaluate(() => {
     const v = document.querySelector('video');
+    if (v) {
+      v.loop = true;
+      try { v.play(); } catch(e) {}
+    }
     return v && !v.paused && v.readyState >= 2;
   });
   console.log(`Video playback initial state: playing=${videoPlaying}`);
@@ -539,7 +562,7 @@ async function main() {
   console.log('Testing ExportDrawer Client Recording & Server Export Modal Fallback...');
   try {
     const rightRail = page.locator('aside[aria-label="Right rail"]');
-    const clipTab = rightRail.locator('button:has-text("clip")');
+    const clipTab = rightRail.locator('button[role="tab"]:has-text("clip")');
     if (await clipTab.isVisible()) {
       await clipTab.click();
       await page.waitForTimeout(300);
@@ -548,14 +571,14 @@ async function main() {
       const dur2sBtn = rightRail.locator('button:has-text("2s")');
       if (await dur2sBtn.isVisible()) {
         await dur2sBtn.click();
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(300);
       }
 
       // 1. Test Client-Side WebM recording
       const webmBtn = rightRail.locator('button:has-text("record WebM clip")');
       if (await webmBtn.isVisible()) {
         console.log('  Testing ExportDrawer "record WebM clip" client trigger...');
-        const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
+        const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null);
         await webmBtn.click();
         const dl = await downloadPromise;
         if (dl) {
@@ -588,15 +611,21 @@ async function main() {
       }
 
       // 3. Test ServerExportModal and Instant Fallback Banner
-      const mp4Btn = rightRail.locator('button:has-text("export MP4")');
-      if (await mp4Btn.first().isVisible()) {
+      const mp4Btn = rightRail.locator('button:has-text("export MP4")').first();
+      if (await mp4Btn.isVisible()) {
         console.log('  Testing ServerExportModal & Fallback Banner...');
-        await mp4Btn.first().click();
-        await page.waitForTimeout(1000);
+        let disabledTimeout = 0;
+        while (await mp4Btn.isDisabled() && disabledTimeout < 5000) {
+          await page.waitForTimeout(200);
+          disabledTimeout += 200;
+        }
+        await mp4Btn.click();
+        const modal = page.locator('div[role="dialog"]');
+        await modal.waitFor({ state: 'visible', timeout: 5000 }).catch(() => null);
 
         const modalText = await page.evaluate(() => {
-          const modal = document.querySelector('div[role="dialog"], [aria-label*="Export"], .fixed');
-          return modal ? modal.textContent : 'No modal found';
+          const m = document.querySelector('div[role="dialog"], [aria-label*="Export"], .fixed');
+          return m ? m.textContent : 'No modal found';
         });
         console.log('  Studio Engine Export Modal opened:', modalText.slice(0, 100).replace(/\n/g, ' '));
 
@@ -608,6 +637,7 @@ async function main() {
           clientExportVerifications.serverModalFallbackBanner = true;
           console.log('  ✓ Clicking fallback banner to verify modal close and focus return...');
           await fallbackBanner.click();
+          await modal.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null);
           await page.waitForTimeout(500);
         } else {
           logObstacle('SERVER_EXPORT_MODAL', 'Missing Instant In-Browser Export Fallback Banner',
@@ -620,6 +650,7 @@ async function main() {
           } else {
             await page.keyboard.press('Escape');
           }
+          await modal.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null);
         }
         await page.waitForTimeout(500);
       }
@@ -643,6 +674,19 @@ async function main() {
     try {
       await applyStack(page, exp.shaders);
       await page.waitForTimeout(400);
+
+      // Ensure video element is playing and looping
+      await page.evaluate(() => {
+        const v = document.querySelector('video');
+        if (v) {
+          v.loop = true;
+          if (v.ended || v.currentTime >= v.duration - 0.5) {
+            v.currentTime = 0;
+          }
+          if (v.paused) try { v.play(); } catch(e) {}
+        }
+      });
+      await page.waitForTimeout(200);
 
       // Record 2.2-second clip of live canvas
       const rec = await recordCanvasClip(page, 2200);
