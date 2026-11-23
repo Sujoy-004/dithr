@@ -34,12 +34,33 @@ if (typeof window !== 'undefined') {
   // Mock AudioContext
   (window as any).AudioContext = class MockAudioContext {
     state = 'suspended';
+    destination = {};
     resume() {
       this.state = 'running';
       return Promise.resolve();
     }
-    createMediaStreamSource() {
-      return { connect: () => {} };
+    createGain() {
+      return {
+        gain: { value: 1.0 },
+        connect: () => {},
+        disconnect: () => {},
+      };
+    }
+    createAnalyser() {
+      return {
+        fftSize: 256,
+        frequencyBinCount: 128,
+        smoothingTimeConstant: 0.0,
+        connect: () => {},
+        disconnect: () => {},
+        getByteFrequencyData: (arr: Uint8Array) => arr.fill(0),
+      };
+    }
+    createMediaElementSource(_el?: any) {
+      return { connect: () => {}, disconnect: () => {} };
+    }
+    createMediaStreamSource(_stream?: any) {
+      return { connect: () => {}, disconnect: () => {} };
     }
     createMediaStreamDestination() {
       return {
@@ -59,6 +80,7 @@ if (typeof window !== 'undefined') {
       };
     }
     close() {
+      this.state = 'closed';
       return Promise.resolve();
     }
   };
