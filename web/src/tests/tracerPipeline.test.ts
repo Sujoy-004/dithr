@@ -107,30 +107,101 @@ describe('Tracer Pipeline: Color Science & Registry Slice (D-01, D-05, D-06, D-2
     });
   });
 
-  describe('Effect Registry Tracer Slice (D-01, D-20)', () => {
-    it('registers tone and ascii with valid parameter schemas and cost weights', () => {
+  describe('Effect Registry Expansion (D-01, D-20, D-23, D-27, FX-01)', () => {
+    const EXPECTED_STYLIZE_IDS = [
+      'ascii',
+      'tone',
+      'dither',
+      'halftone',
+      'matrix',
+      'pixelSort',
+      'blockify',
+      'threshold',
+      'edgeDetect',
+      'crosshatch',
+      'waveLines',
+      'noise',
+      'voronoi',
+      'dots',
+      'contour',
+    ];
+    const EXPECTED_MODULATE_IDS = ['grain'];
+
+    it('registers exactly 16 Grainrad modes in EffectRegistry', () => {
       const registry = new EffectRegistry();
-      const tone = registry.get('tone');
-      const ascii = registry.get('ascii');
+      const all = registry.getAll();
+      expect(all.length).toBe(16);
 
-      expect(tone).toBeDefined();
-      expect(tone?.label).toBe('Tone Adjustment');
-      expect(tone?.category).toBe('stylize');
-      expect(tone?.costWeight).toBe(1);
-      expect(tone?.parameters.brightness.default).toBe(1.0);
-      expect(tone?.parameters.hueRotation.unit).toBe('deg');
+      const allIds = all.map((e) => e.id).sort();
+      const expectedIds = [...EXPECTED_STYLIZE_IDS, ...EXPECTED_MODULATE_IDS].sort();
+      expect(allIds).toEqual(expectedIds);
+    });
 
-      expect(ascii).toBeDefined();
-      expect(ascii?.label).toBe('ASCII Art');
-      expect(ascii?.category).toBe('stylize');
-      expect(ascii?.costWeight).toBe(1);
-      expect(ascii?.parameters.cellScale.default).toBe(12.0);
-      expect(ascii?.parameters.charAspect.default).toBe(0.5);
-
+    it('partitions all modes into stylize (15) and modulate (1) per D-01', () => {
       const grouped = getGroupedEffects();
-      expect(grouped.stylize.length).toBeGreaterThanOrEqual(2);
-      expect(getEffectDefinition('tone')).toBeDefined();
-      expect(getEffectDefinition('ascii')).toBeDefined();
+      expect(grouped.stylize.length).toBe(15);
+      expect(grouped.modulate.length).toBe(1);
+
+      const stylizeIds = grouped.stylize.map((e) => e.id);
+      for (const id of EXPECTED_STYLIZE_IDS) {
+        expect(stylizeIds).toContain(id);
+        expect(getEffectDefinition(id)).toBeDefined();
+      }
+
+      const modulateIds = grouped.modulate.map((e) => e.id);
+      expect(modulateIds).toEqual(['grain']);
+      expect(getEffectDefinition('grain')).toBeDefined();
+    });
+
+    it('verifies every registered effect has valid parameter schema, costWeight, and buildNode', () => {
+      const registry = new EffectRegistry();
+      for (const effect of registry.getAll()) {
+        expect(effect.id).toBeDefined();
+        expect(effect.label).toBeDefined();
+        expect(['stylize', 'modulate']).toContain(effect.category);
+        expect([1, 2, 3]).toContain(effect.costWeight);
+        expect(typeof effect.requiresPass).toBe('boolean');
+        expect(typeof effect.buildNode).toBe('function');
+
+        // Parameter schema checks
+        for (const [, schema] of Object.entries(effect.parameters)) {
+          expect(['float', 'int', 'boolean', 'select']).toContain(schema.type);
+          expect(schema.default).toBeDefined();
+
+          if (schema.type === 'float' || schema.type === 'int') {
+            expect(typeof schema.min).toBe('number');
+            expect(typeof schema.max).toBe('number');
+            expect(schema.min).toBeLessThanOrEqual(schema.max as number);
+            expect(typeof schema.step).toBe('number');
+          }
+
+          if (schema.type === 'select') {
+            expect(Array.isArray(schema.options)).toBe(true);
+            expect(schema.options?.length).toBeGreaterThan(0);
+          }
+        }
+      }
+    });
+
+    it('builds node graphs for all 16 registered effects without error', () => {
+      const registry = new EffectRegistry();
+      const testInput = vec4(0.4, 0.5, 0.6, 1.0);
+      const env = {
+        resolution: vec2(1920, 1080),
+        time: uniform(1.5),
+        seed: uniform(99.0),
+      };
+
+      for (const effect of registry.getAll()) {
+        const defaultUniforms: Record<string, any> = {};
+        for (const [key, schema] of Object.entries(effect.parameters)) {
+          defaultUniforms[key] = schema.default;
+        }
+
+        const node = effect.buildNode(testInput, defaultUniforms, env);
+        expect(node).toBeDefined();
+        expect(node.isNode).toBe(true);
+      }
     });
   });
 

@@ -6,20 +6,59 @@ import type {
   ActiveEffectPass,
   EffectEnvironment,
 } from './types';
-import { toneEffect } from './stylize/tone';
+
+// 15 Stylize effects
 import { asciiEffect } from './stylize/ascii';
+import { toneEffect } from './stylize/tone';
+import { ditherEffect } from './stylize/dither';
+import { halftoneEffect } from './stylize/halftone';
+import { matrixEffect } from './stylize/matrix';
+import { pixelSortEffect } from './stylize/pixelSort';
+import { blockifyEffect } from './stylize/blockify';
+import { thresholdEffect } from './stylize/threshold';
+import { edgeDetectEffect } from './stylize/edgeDetect';
+import { crosshatchEffect } from './stylize/crosshatch';
+import { waveLinesEffect } from './stylize/waveLines';
+import { noiseEffect } from './stylize/noise';
+import { voronoiEffect } from './stylize/voronoi';
+import { dotsEffect } from './stylize/dots';
+import { contourEffect } from './stylize/contour';
+
+// 1 Modulate effect
+import { grainEffect } from './modulate/grain';
+
 import { sRGBToLinear, linearTosRGB } from '../color/colorSpace';
+
+export const ALL_EFFECT_DEFINITIONS: readonly EffectDefinition[] = [
+  asciiEffect,
+  toneEffect,
+  ditherEffect,
+  halftoneEffect,
+  matrixEffect,
+  pixelSortEffect,
+  blockifyEffect,
+  thresholdEffect,
+  edgeDetectEffect,
+  crosshatchEffect,
+  waveLinesEffect,
+  noiseEffect,
+  voronoiEffect,
+  dotsEffect,
+  contourEffect,
+  grainEffect,
+] as const;
 
 /**
  * Single-source-of-truth registry catalog for all visual effects (D-01, D-20, FX-01).
+ * Registers all 16 Grainrad modes partitioned into stylize and modulate.
  */
 export class EffectRegistry {
   private effects = new Map<string, EffectDefinition>();
 
   constructor() {
-    // Initial tracer effects (expanded in Task 2)
-    this.register(toneEffect);
-    this.register(asciiEffect);
+    for (const def of ALL_EFFECT_DEFINITIONS) {
+      this.register(def);
+    }
   }
 
   register(def: EffectDefinition): void {
@@ -113,5 +152,21 @@ export function compileLinearEffectStack(
 }
 
 export * from './types';
-export { toneEffect } from './stylize/tone';
-export { asciiEffect } from './stylize/ascii';
+export {
+  asciiEffect,
+  toneEffect,
+  ditherEffect,
+  halftoneEffect,
+  matrixEffect,
+  pixelSortEffect,
+  blockifyEffect,
+  thresholdEffect,
+  edgeDetectEffect,
+  crosshatchEffect,
+  waveLinesEffect,
+  noiseEffect,
+  voronoiEffect,
+  dotsEffect,
+  contourEffect,
+  grainEffect,
+};
