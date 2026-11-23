@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type {
+  ActiveEffectPass,
   AsciiSettings,
+  BlendMode,
   Dimensions,
   EffectMode,
   EffectParams,
@@ -9,6 +11,8 @@ import type {
   ToneSettings,
 } from '../types/studio';
 import type { QualityTier, GpuCapabilities } from '../engine/capabilities';
+import { getEffectDefinition } from '../engine/registry';
+import type { StudioPipeline } from '../engine/Pipeline';
 
 interface Pan {
   x: number;
@@ -34,9 +38,23 @@ interface StudioState extends MediaState {
   effect: EffectMode;
   setEffect: (effect: EffectMode) => void;
 
+  // Active Effect Stack (D-01, D-02, D-03, D-04, D-20, FX-01)
+  activeStack: ActiveEffectPass[];
+  selectedPassId: string | null;
+  setSelectedPassId: (id: string | null) => void;
+  addEffect: (effectId: string, initialParams?: Record<string, any>) => void;
+  removeEffect: (instanceId: string) => void;
+  reorderStack: (fromIndex: number, toIndex: number) => void;
+  toggleEffect: (instanceId: string) => void;
+  duplicateEffect: (instanceId: string) => void;
+  setEffectIntensity: (instanceId: string, intensity: number) => void;
+  setEffectBlendMode: (instanceId: string, mode: BlendMode) => void;
+  updatePassParam: (instanceId: string, paramKey: string, value: any) => void;
+  setSingleEffectFastPath: (effectId: string) => void;
+
   // Dynamic effect parameters
   effectParams: EffectParams;
-  updateEffectParam: (key: keyof EffectParams, value: number) => void;
+  updateEffectParam: (keyOrInstanceId: string, valueOrParamKey: any, maybeValue?: any) => void;
 
   // Pre-tone adjustments (SHADER-03)
   tone: ToneSettings;
@@ -129,6 +147,22 @@ export const DEFAULT_EFFECT_PARAMS: EffectParams = {
   vhsCurvature: 0.0,
 };
 
+export const DEFAULT_INITIAL_STACK: ActiveEffectPass[] = [
+  {
+    instanceId: 'initial-ascii',
+    effectId: 'ascii',
+    enabled: true,
+    intensity: 1.0,
+    blendMode: 'normal',
+    parameters: {
+      cellScale: 12,
+      charSpacing: 0,
+      charAspect: 0.5,
+      rampLength: 10,
+    },
+  },
+];
+
 const DEFAULT_PAN: Pan = { x: 0, y: 0 };
 const DEFAULT_ZOOM = 1;
 
@@ -138,6 +172,23 @@ export const ZOOM_MAX = 8;
 
 function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
+}
+
+let activePipeline: StudioPipeline | null = null;
+
+export function registerPipeline(pipeline: StudioPipeline | null): void {
+  activePipeline = pipeline;
+}
+
+export function getActivePipeline(): StudioPipeline | null {
+  return activePipeline;
+}
+
+function generateInstanceId(effectId: string): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `${effectId}-${crypto.randomUUID().slice(0, 8)}`;
+  }
+  return `${effectId}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 /**
@@ -246,11 +297,172 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   resetHUD: () => set({ zoom: DEFAULT_ZOOM, pan: DEFAULT_PAN }),
 
   effect: 'ascii',
-  setEffect: (effect) => set({ effect }),
+  setEffect: (effect) => {
+    get().setSingleEffectFastPath(effect);
+  },
+
+  activeStack: DEFAULT_INITIAL_STACK,
+  selectedPassId: 'initial-ascii',
+
+  setSelectedPassId: (selectedPassId) => set({ selectedPassId }),
+
+  addEffect: (effectId, initialParams) => {
+    const def = getEffectDefinition(effectId);
+    const params: Record<string, any> = {};
+    if (def) {
+      for (const [k, s] of Object.entries(def.parameters)) {
+        params[k] = s.default;
+      }
+    }
+    if (initialParams) {
+      Object.assign(params, initialParams);
+    }
+    const newPass: ActiveEffectPass = {
+      instanceId: generateInstanceId(effectId),
+      effectId,
+      enabled: true,
+      intensity: 1.0,
+      blendMode: 'normal',
+      parameters: params,
+    };
+    const next = [...get().activeStack, newPass];
+    activePipeline?.syncStack(next, get().activeTier);
+    set({
+      activeStack: next,
+      selectedPassId: newPass.instanceId,
+    });
+  },
+
+  removeEffect: (instanceId) => {
+    const state = get();
+    const index = state.activeStack.findIndex((p) => p.instanceId === instanceId);
+    if (index === -1) return;
+    const next = state.activeStack.filter((p) => p.instanceId !== instanceId);
+    let nextSelectedId = state.selectedPassId;
+    if (state.selectedPassId === instanceId) {
+      if (next.length === 0) {
+        nextSelectedId = null;
+      } else {
+        const fallbackIdx = Math.max(0, index - 1);
+        nextSelectedId = next[fallbackIdx]?.instanceId ?? null;
+      }
+    }
+    activePipeline?.syncStack(next, state.activeTier);
+    set({
+      activeStack: next,
+      selectedPassId: nextSelectedId,
+    });
+  },
+
+  reorderStack: (fromIndex, toIndex) => {
+    const state = get();
+    if (
+      fromIndex < 0 ||
+      fromIndex >= state.activeStack.length ||
+      toIndex < 0 ||
+      toIndex >= state.activeStack.length ||
+      fromIndex === toIndex
+    ) {
+      return;
+    }
+    const item = state.activeStack[fromIndex];
+    if (!item) return;
+    const next = state.activeStack.toSpliced(fromIndex, 1).toSpliced(toIndex, 0, item);
+    activePipeline?.syncStack(next, state.activeTier);
+    set({ activeStack: next });
+  },
+
+  toggleEffect: (instanceId) => {
+    const state = get();
+    const next = state.activeStack.map((p) =>
+      p.instanceId === instanceId ? { ...p, enabled: !p.enabled } : p
+    );
+    activePipeline?.syncStack(next, state.activeTier);
+    set({ activeStack: next });
+  },
+
+  duplicateEffect: (instanceId) => {
+    const state = get();
+    const index = state.activeStack.findIndex((p) => p.instanceId === instanceId);
+    if (index === -1) return;
+    const original = state.activeStack[index];
+    const clone: ActiveEffectPass = structuredClone(original);
+    clone.instanceId = generateInstanceId(original.effectId);
+    const next = state.activeStack.toSpliced(index + 1, 0, clone);
+    activePipeline?.syncStack(next, state.activeTier);
+    set({
+      activeStack: next,
+      selectedPassId: clone.instanceId,
+    });
+  },
+
+  setEffectIntensity: (instanceId, intensity) => {
+    const clamped = Math.max(0, Math.min(1, intensity));
+    const next = get().activeStack.map((p) =>
+      p.instanceId === instanceId ? { ...p, intensity: clamped } : p
+    );
+    activePipeline?.updateUniform(instanceId, 'intensity', clamped);
+    set({ activeStack: next });
+  },
+
+  setEffectBlendMode: (instanceId, mode) => {
+    const state = get();
+    const next = state.activeStack.map((p) =>
+      p.instanceId === instanceId ? { ...p, blendMode: mode } : p
+    );
+    activePipeline?.syncStack(next, state.activeTier);
+    set({ activeStack: next });
+  },
+
+  updatePassParam: (instanceId, paramKey, value) => {
+    const next = get().activeStack.map((p) => {
+      if (p.instanceId !== instanceId) return p;
+      return {
+        ...p,
+        parameters: {
+          ...p.parameters,
+          [paramKey]: value,
+        },
+      };
+    });
+    activePipeline?.updateUniform(instanceId, paramKey, value);
+    set({ activeStack: next });
+  },
+
+  setSingleEffectFastPath: (effectId) => {
+    const def = getEffectDefinition(effectId);
+    const params: Record<string, any> = {};
+    if (def) {
+      for (const [k, s] of Object.entries(def.parameters)) {
+        params[k] = s.default;
+      }
+    }
+    const instanceId = generateInstanceId(effectId);
+    const pass: ActiveEffectPass = {
+      instanceId,
+      effectId,
+      enabled: true,
+      intensity: 1.0,
+      blendMode: 'normal',
+      parameters: params,
+    };
+    activePipeline?.syncStack([pass], get().activeTier);
+    set({
+      activeStack: [pass],
+      selectedPassId: instanceId,
+      effect: effectId as EffectMode,
+    });
+  },
 
   effectParams: DEFAULT_EFFECT_PARAMS,
-  updateEffectParam: (key, value) =>
-    set((s) => ({ effectParams: { ...s.effectParams, [key]: value } })),
+  updateEffectParam: (keyOrInstanceId: any, valueOrParamKey: any, maybeValue?: any) => {
+    if (maybeValue !== undefined) {
+      get().updatePassParam(keyOrInstanceId, valueOrParamKey, maybeValue);
+    } else {
+      set((s) => ({ effectParams: { ...s.effectParams, [keyOrInstanceId]: valueOrParamKey } }));
+      activePipeline?.updateUniform(`legacy-${get().effect}`, keyOrInstanceId, valueOrParamKey);
+    }
+  },
 
   tone: DEFAULT_TONE,
   updateTone: (patch) => set((s) => ({ tone: { ...s.tone, ...patch } })),

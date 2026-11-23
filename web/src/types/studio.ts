@@ -4,6 +4,10 @@
  * charAspect mirrors `char_aspect = 0.5` from src/config.py (Rec. 601 pipeline).
  */
 
+import type { ActiveEffectPass, EffectDefinition, BlendMode } from '../engine/registry/types';
+
+export type { ActiveEffectPass, EffectDefinition, BlendMode };
+
 export type MediaType = 'image' | 'video' | 'webcam';
 
 export type ThemeMode = 'dark' | 'light';
