@@ -22,12 +22,12 @@ Requirements for Milestone v2.0 Professional Studio. Each maps to roadmap phases
 
 ### Shader Engine 2.0 & Advanced FX
 
-- [ ] **FX-01**: User can stack, reorder, toggle, and adjust multiple post-processing effects in a composable node pipeline without fixed-stage restrictions.
-- [ ] **FX-02**: User sees color conversions and ASCII luminance mapping rendered using standard Rec. 601 / Rec. 709 weighting with gamma-accurate blending to prevent washed-out shadows or clipped highlights.
-- [ ] **FX-03**: User can apply RGB channel separation (chromatic aberration) and configurable spatial vignette/box masks to any media source.
-- [ ] **FX-04**: User can apply advanced analog CRT and VHS emulation featuring phosphor decay, beam curvature, scanline jitter, and bloom.
-- [ ] **FX-05**: User can enable audio-reactive modulation where microphone input or video audio frequency bands (bass, mid, treble) dynamically drive shader parameters in real time.
-- [ ] **FX-06**: User can render 3D geometry and mesh surfaces into real-time ASCII point clouds and rasterized depth representations.
+- [x] **FX-01**: User can stack, reorder, toggle, and adjust multiple post-processing effects in a composable node pipeline without fixed-stage restrictions.
+- [x] **FX-02**: User sees color conversions and ASCII luminance mapping rendered using standard Rec. 601 / Rec. 709 weighting with gamma-accurate blending to prevent washed-out shadows or clipped highlights.
+- [x] **FX-03**: User can apply RGB channel separation (chromatic aberration) and configurable spatial vignette/box masks to any media source.
+- [x] **FX-04**: User can apply advanced analog CRT and VHS emulation featuring phosphor decay, beam curvature, scanline jitter, and bloom.
+- [x] **FX-05**: User can enable audio-reactive modulation where microphone input or video audio frequency bands (bass, mid, treble) dynamically drive shader parameters in real time.
+- [x] **FX-06**: User can render 3D geometry and mesh surfaces into real-time ASCII point clouds and rasterized depth representations.
 
 ### Creative Workspace & Export Studio
 
@@ -84,12 +84,12 @@ Which phases cover which requirements. (Populated during roadmap creation).
 | RELY-08 | Phase 1 | Complete |
 | RELY-09 | Phase 1 | Complete |
 | RELY-10 | Phase 1 | Complete |
-| FX-01 | Phase 2 | Pending |
-| FX-02 | Phase 2 | Pending |
-| FX-03 | Phase 2 | Pending |
-| FX-04 | Phase 2 | Pending |
-| FX-05 | Phase 2 | Pending |
-| FX-06 | Phase 2 | Pending |
+| FX-01 | Phase 2 | Complete |
+| FX-02 | Phase 2 | Complete |
+| FX-03 | Phase 2 | Complete |
+| FX-04 | Phase 2 | Complete |
+| FX-05 | Phase 2 | Complete |
+| FX-06 | Phase 2 | Complete |
 | WORK-01 | Phase 3 | Pending |
 | WORK-02 | Phase 3 | Pending |
 | WORK-03 | Phase 3 | Pending |
