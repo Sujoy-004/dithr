@@ -214,6 +214,9 @@ export class StudioPipeline {
     tex.magFilter = THREE.LinearFilter;
     tex.generateMipmaps = false;
     this.sourceTextureNode = texture(tex);
+    if (!this.sourceTextureNode.uv && typeof this.sourceTextureNode.sample === 'function') {
+      this.sourceTextureNode.uv = (c: any) => this.sourceTextureNode.sample(c);
+    }
 
     // Clear pipeline cache so new source texture node is bound
     this.disposePipelineCache();

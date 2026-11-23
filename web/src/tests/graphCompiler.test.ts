@@ -264,6 +264,46 @@ describe('GraphCompiler: Pass Fusion & Topology Hashing (D-03, D-06, D-21, D-22)
       const intermediateTargetsCount = stages.filter((s) => s.requiresTarget).length;
       expect(intermediateTargetsCount).toBe(1);
     });
+
+    it('flushes preceding passes into an intermediate target stage when a spatial shader follows upstream passes ([tone, edgeDetect]), while preserving 1-stage when contiguous passes are purely pointwise', () => {
+      // Pointwise upstream + spatial downstream -> 2 stages, 1 intermediate target
+      const spatialStack: ActiveEffectPass[] = [
+        createPass('tone', 'tone-1'),
+        createPass('edgeDetect', 'edge-1'),
+      ];
+
+      const stages = planExecutionStages(spatialStack);
+      expect(stages).toHaveLength(2);
+      expect(stages[0].type).toBe('fused_fragment');
+      expect(stages[0].passes).toHaveLength(1);
+      expect(stages[0].passes[0].effectId).toBe('tone');
+      expect(stages[0].requiresTarget).toBe(true);
+
+      expect(stages[1].type).toBe('intermediate_target');
+      expect(stages[1].passes).toHaveLength(1);
+      expect(stages[1].passes[0].effectId).toBe('edgeDetect');
+      expect(stages[1].requiresTarget).toBe(false);
+
+      // Spatial pass at Stage 0 without preceding passes executes in single stage without intermediate target
+      const soloSpatialStack: ActiveEffectPass[] = [
+        createPass('edgeDetect', 'edge-1'),
+      ];
+      const soloStages = planExecutionStages(soloSpatialStack);
+      expect(soloStages).toHaveLength(1);
+      expect(soloStages[0].requiresTarget).toBe(false);
+
+      // Multiple spatial shaders split sequentially
+      const multiSpatialStack: ActiveEffectPass[] = [
+        createPass('tone', 'tone-1'),
+        createPass('edgeDetect', 'edge-1'),
+        createPass('pixelSort', 'sort-1'),
+      ];
+      const multiStages = planExecutionStages(multiSpatialStack);
+      expect(multiStages).toHaveLength(3);
+      expect(multiStages[0].requiresTarget).toBe(true);
+      expect(multiStages[1].requiresTarget).toBe(true);
+      expect(multiStages[2].requiresTarget).toBe(false);
+    });
   });
 
   describe('compileGraph (D-03, D-06, D-21)', () => {
@@ -335,6 +375,80 @@ describe('GraphCompiler: Pass Fusion & Topology Hashing (D-03, D-06, D-21, D-22)
       expect(compiled.stageDescriptors[1].inputTextureNode).toBeDefined();
 
       compiled.dispose();
+    });
+
+    it('provides env.sampleAt to effect definitions for both Stage 0 and Stage 1+', () => {
+      let stage0SampleAt: any = null;
+      let stage1SampleAt: any = null;
+
+      const customRegistry = new EffectRegistry();
+      customRegistry.register({
+        id: 'mockPointwise',
+        label: 'Pointwise',
+        category: 'stylize',
+        parameters: {},
+        requiresPass: false,
+        costWeight: 1,
+        buildNode: (input) => input,
+      });
+      customRegistry.register({
+        id: 'spySpatial0',
+        label: 'Spy 0',
+        category: 'stylize',
+        parameters: {},
+        requiresPass: false,
+        requiresSpatialSampling: true,
+        costWeight: 2,
+        buildNode: (input, uniforms, env) => {
+          stage0SampleAt = env?.sampleAt;
+          return input;
+        },
+      });
+      customRegistry.register({
+        id: 'spySpatial1',
+        label: 'Spy 1',
+        category: 'stylize',
+        parameters: {},
+        requiresPass: false,
+        requiresSpatialSampling: true,
+        costWeight: 2,
+        buildNode: (input, uniforms, env) => {
+          stage1SampleAt = env?.sampleAt;
+          return input;
+        },
+      });
+
+      // Test Stage 0 sampleAt
+      const dummyTex = new THREE.Texture();
+      const sourceNode = {
+        value: dummyTex,
+        sample: (c: any) => vec4(c.x, c.y, 0, 1),
+      };
+      const stack0: ActiveEffectPass[] = [createPass('spySpatial0', 's0')];
+      const stages0 = planExecutionStages(stack0, customRegistry);
+      const compiler0 = new GraphCompiler(customRegistry);
+      const compiled0 = compiler0.compileGraph(sourceNode, stages0);
+
+      expect(typeof stage0SampleAt).toBe('function');
+      const sampled0 = stage0SampleAt(vec4(0.1, 0.2, 0, 0));
+      expect(sampled0).toBeDefined();
+      compiled0.dispose();
+
+      // Test Stage 1 sampleAt (when preceded by mockPointwise)
+      const stack1: ActiveEffectPass[] = [
+        createPass('mockPointwise', 'p1'),
+        createPass('spySpatial1', 's1'),
+      ];
+      const stages1 = planExecutionStages(stack1, customRegistry);
+      expect(stages1).toHaveLength(2);
+
+      const compiler1 = new GraphCompiler(customRegistry);
+      const compiled1 = compiler1.compileGraph(sourceNode, stages1);
+
+      expect(typeof stage1SampleAt).toBe('function');
+      const sampled1 = stage1SampleAt(vec4(0.3, 0.4, 0, 0));
+      expect(sampled1).toBeDefined();
+      compiled1.dispose();
     });
   });
 });

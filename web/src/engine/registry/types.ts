@@ -35,6 +35,7 @@ export interface EffectDefinition {
   category: EffectCategory;
   parameters: Record<string, ParameterSchema>;
   requiresPass: boolean;
+  requiresSpatialSampling?: boolean; // True for shaders needing upstream rasterized intermediates
   costWeight: number; // 1 for pointwise, 2 for spatial/convolution, 3 for temporal/heavy
   buildNode: (inputNode: any, uniforms: Record<string, any>, env?: EffectEnvironment) => any;
 }

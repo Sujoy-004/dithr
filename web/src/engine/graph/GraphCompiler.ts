@@ -9,6 +9,18 @@ import type {
 
 export type StageType = 'fused_fragment' | 'intermediate_target';
 
+/**
+ * Effects that require spatial/neighborhood coordinate sampling.
+ * When preceded by active upstream passes in the same stage, the upstream passes
+ * must be flushed into an intermediate target so spatial convolutions/offsets sample
+ * the rasterized upstream result.
+ */
+export const SPATIAL_INTERMEDIATE_EFFECTS = new Set([
+  'edgeDetect',
+  'pixelSort',
+  'rgbSplit',
+]);
+
 export interface ExecutionStage {
   id: string;
   type: StageType;
@@ -72,8 +84,12 @@ export function planExecutionStages(
     const pass = activePasses[i];
     const def = registry.get(pass.effectId);
     const requiresPass = def?.requiresPass ?? false;
+    const isSpatialSampling =
+      SPATIAL_INTERMEDIATE_EFFECTS.has(pass.effectId) ||
+      (def as any)?.requiresSpatialSampling === true;
+    const needsSplit = requiresPass || isSpatialSampling;
 
-    if (requiresPass && currentPasses.length > 0) {
+    if (needsSplit && currentPasses.length > 0) {
       stages.push({
         id: `stage_${stages.length}`,
         type: currentStageHasIntermediate ? 'intermediate_target' : 'fused_fragment',
@@ -159,11 +175,52 @@ export function compileGraph(
     if (stageIdx === 0) {
       // Stage 0: takes sourceNode decoded to linear light
       currentInput = sourceNode ? sRGBToLinear(sourceNode) : vec4(0.06, 0.06, 0.06, 1.0);
+      if (sourceNode && !sourceNode.uv && typeof sourceNode.sample === 'function') {
+        sourceNode.uv = (c: any) => sourceNode.sample(c);
+      }
     } else {
       // Subsequent stages: sample from intermediate target texture node
       inputTextureNode = texture(dummyTexture);
+      if (!inputTextureNode.uv && typeof inputTextureNode.sample === 'function') {
+        inputTextureNode.uv = (c: any) => inputTextureNode.sample(c);
+      }
       currentInput = inputTextureNode;
     }
+
+    // Construct stage-scoped EffectEnvironment with sampleAt capability
+    const stageSampleAt = (uvCoord: any) => {
+      if (stageIdx === 0) {
+        if (sourceNode && typeof sourceNode.uv === 'function') {
+          return sRGBToLinear(sourceNode.uv(uvCoord));
+        }
+        if (sourceNode && typeof sourceNode.sample === 'function') {
+          return sRGBToLinear(sourceNode.sample(uvCoord));
+        }
+        if (sourceNode?.value instanceof THREE.Texture) {
+          return sRGBToLinear(texture(sourceNode.value, uvCoord));
+        }
+        if (typeof env?.sampleAt === 'function') {
+          return env.sampleAt(uvCoord);
+        }
+        return currentInput;
+      } else {
+        if (inputTextureNode && typeof inputTextureNode.uv === 'function') {
+          return inputTextureNode.uv(uvCoord);
+        }
+        if (inputTextureNode && typeof inputTextureNode.sample === 'function') {
+          return inputTextureNode.sample(uvCoord);
+        }
+        if (inputTextureNode?.value instanceof THREE.Texture) {
+          return texture(inputTextureNode.value, uvCoord);
+        }
+        return currentInput;
+      }
+    };
+
+    const stageEnv: EffectEnvironment = {
+      ...env,
+      sampleAt: stageSampleAt,
+    };
 
     let current = currentInput;
 
@@ -200,7 +257,7 @@ export function compileGraph(
       }
 
       // Build effect output in linear light
-      const effectOutput = def.buildNode(current, passUniforms, env);
+      const effectOutput = def.buildNode(current, passUniforms, stageEnv);
 
       // Apply row blend mode and intensity in linear light (D-03, D-06)
       current = applyBlendMode(current, effectOutput, pass.blendMode, intUniform);
