@@ -24,8 +24,9 @@ import { voronoiEffect } from './stylize/voronoi';
 import { dotsEffect } from './stylize/dots';
 import { contourEffect } from './stylize/contour';
 
-// 1 Modulate effect
+// Modulate effects
 import { grainEffect } from './modulate/grain';
+import { rgbSplitEffect } from './modulate/rgbSplit';
 
 import { sRGBToLinear, linearTosRGB } from '../color/colorSpace';
 
@@ -46,6 +47,7 @@ export const ALL_EFFECT_DEFINITIONS: readonly EffectDefinition[] = [
   dotsEffect,
   contourEffect,
   grainEffect,
+  rgbSplitEffect,
 ] as const;
 
 /**
@@ -169,4 +171,5 @@ export {
   dotsEffect,
   contourEffect,
   grainEffect,
+  rgbSplitEffect,
 };
