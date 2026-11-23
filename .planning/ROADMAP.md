@@ -60,7 +60,15 @@ Plans:
   4. Analog CRT and VHS emulation renders phosphor decay, scanline curvature, tape tracking jitter, and bloom.
   5. Live microphone input or video audio frequency bands (bass, mid, treble) extracted via Web Audio `AnalyserNode` dynamically modulate shader parameters in real time at 60 FPS.
   6. User can load and render 3D meshes into real-time ASCII point clouds and rasterized depth fields.
-**Plans**: TBD (to be planned via `/gsd-plan-phase 2`)
+**Plans:** 6 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Color Science, Typed Effect Registry & Tracer Pipeline Slice
+- [ ] 02-02-PLAN.md — Hybrid Render Graph, PassPool & Engine Pipeline Execution
+- [ ] 02-03-PLAN.md — LeftRail Effect Stack UI, Reorder & Schema-Driven Inspector
+- [ ] 02-04-PLAN.md — Spatial Masks, RGB Channel Split & Advanced Analog CRT/VHS Emulation
+- [ ] 02-05-PLAN.md — Web Audio Reactivity & Zero-Churn RAF Modulation
+- [ ] 02-06-PLAN.md — 3D ASCII Generator, Mesh Ingestion & Test Harness Verification
 
 ---
 
@@ -104,7 +112,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Reliability & Performance Foundation | 5/5 | Planning complete | - |
-| 2. Shader Engine 2.0 & Advanced FX | 0/0 | Not started | - |
+| 2. Shader Engine 2.0 & Advanced FX | 0/6 | Planning complete | - |
 | 3. Creative Workspace & Export Studio | 0/0 | Not started | - |
 | 4. Persistence, Community & Distribution | 0/0 | Not started | - |
 
