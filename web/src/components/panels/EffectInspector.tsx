@@ -1,307 +1,234 @@
 import { useStudioStore } from '../../store/useStudioStore';
-import type { RampPreset } from '../../types/studio';
+import { getEffectDefinition } from '../../engine/registry';
+import type { BlendMode, RampPreset } from '../../types/studio';
+import { Sliders } from 'lucide-react';
 
 export interface EffectInspectorProps {
-  onParamChange?: (key: string, value: number) => void;
+  onParamChange?: (key: string, value: any) => void;
+}
+
+function formatParamLabel(key: string): string {
+  return key.replace(/([A-Z])/g, ' $1').toLowerCase();
 }
 
 /**
- * Dynamic parameter inspector panel (D-03, SHADER-02).
- * Displays controls tailored to the active Grainrad effect mode.
+ * Dynamic schema-driven parameter inspector panel (D-02, D-03, D-20, D-22, FX-01).
+ * Retrieves parameter schemas from EffectRegistry for the selected stack pass and
+ * mutates uniforms directly with zero pipeline rebuild overhead.
  */
 export default function EffectInspector({ onParamChange }: EffectInspectorProps) {
-  const effect = useStudioStore((s) => s.effect);
+  const activeStack = useStudioStore((s) => s.activeStack);
+  const selectedPassId = useStudioStore((s) => s.selectedPassId);
+  const setEffectIntensity = useStudioStore((s) => s.setEffectIntensity);
+  const setEffectBlendMode = useStudioStore((s) => s.setEffectBlendMode);
+  const updatePassParam = useStudioStore((s) => s.updatePassParam);
   const ascii = useStudioStore((s) => s.ascii);
   const updateAscii = useStudioStore((s) => s.updateAscii);
-  const effectParams = useStudioStore((s) => s.effectParams);
-  const updateEffectParam = useStudioStore((s) => s.updateEffectParam);
 
-  const handleParam = (key: any, val: number) => {
-    updateEffectParam(key, val);
-    if (onParamChange) onParamChange(key, val);
-  };
+  const selectedPass = activeStack.find((p) => p.instanceId === selectedPassId);
 
-  switch (effect) {
-    case 'ascii':
-      return (
-        <div className="flex flex-col gap-2">
-          <SliderRow
-            label="cell size"
-            value={ascii.cellScale}
-            min={4}
-            max={32}
-            step={1}
-            format={(v) => `${v} px`}
-            onChange={(cellScale) => updateAscii({ cellScale })}
-          />
-          <SliderRow
-            label="char spacing"
-            value={ascii.charSpacing}
-            min={0}
-            max={8}
-            step={0.5}
-            format={(v) => `${v} px`}
-            onChange={(charSpacing) => updateAscii({ charSpacing })}
-          />
-          <SliderRow
-            label="cell aspect"
-            value={ascii.charAspect}
-            min={0.25}
-            max={1}
-            step={0.05}
-            format={(v) => v.toFixed(2)}
-            onChange={(charAspect) => updateAscii({ charAspect })}
-          />
-          <label className="flex h-6 items-center justify-between text-control">
-            <span>glyph ramp</span>
-            <select
-              value={ascii.rampPreset}
-              onChange={(e) => updateAscii({ rampPreset: e.target.value as RampPreset, customChars: '' })}
-              className="h-6 bg-raised px-2 text-control text-highlight hover:bg-active focus-visible:bg-active"
-            >
-              <option value="standard">standard</option>
-              <option value="dense">dense</option>
-              <option value="simple">simple</option>
-              <option value="blocks">blocks</option>
-            </select>
-          </label>
-          <label className="flex h-6 items-center justify-between gap-2 text-control">
-            <span className="shrink-0">custom ramp</span>
-            <input
-              type="text"
-              value={ascii.customChars}
-              placeholder="(uses preset)"
-              onChange={(e) => updateAscii({ customChars: e.target.value })}
-              className="h-6 w-40 bg-raised px-2 text-control text-highlight placeholder:text-dim hover:bg-active focus-visible:bg-active"
-            />
-          </label>
-        </div>
-      );
-
-    case 'dither':
-      return (
-        <div className="flex flex-col gap-2">
-          <SliderRow
-            label="color levels"
-            value={effectParams.ditherSteps}
-            min={2}
-            max={16}
-            step={1}
-            format={(v) => `${v}`}
-            onChange={(v) => handleParam('ditherSteps', v)}
-          />
-          <SliderRow
-            label="dither spread"
-            value={effectParams.ditherSpread}
-            min={0.1}
-            max={2.0}
-            step={0.05}
-            format={(v) => v.toFixed(2)}
-            onChange={(v) => handleParam('ditherSpread', v)}
-          />
-        </div>
-      );
-
-    case 'halftone':
-      return (
-        <div className="flex flex-col gap-2">
-          <SliderRow
-            label="screen frequency"
-            value={effectParams.halftoneFreq}
-            min={10}
-            max={150}
-            step={1}
-            format={(v) => `${v} lpi`}
-            onChange={(v) => handleParam('halftoneFreq', v)}
-          />
-          <SliderRow
-            label="screen angle"
-            value={effectParams.halftoneAngle}
-            min={-90}
-            max={90}
-            step={1}
-            format={(v) => `${v}°`}
-            onChange={(v) => handleParam('halftoneAngle', v)}
-          />
-          <SliderRow
-            label="dot radius"
-            value={effectParams.halftoneRadius}
-            min={0.2}
-            max={2.0}
-            step={0.05}
-            format={(v) => v.toFixed(2)}
-            onChange={(v) => handleParam('halftoneRadius', v)}
-          />
-        </div>
-      );
-
-    case 'vhs':
-      return (
-        <div className="flex flex-col gap-2">
-          <SliderRow
-            label="scanline intensity"
-            value={effectParams.vhsScanlineIntensity}
-            min={0}
-            max={1}
-            step={0.05}
-            format={(v) => (v === 0 ? 'off' : v.toFixed(2))}
-            onChange={(v) => handleParam('vhsScanlineIntensity', v)}
-          />
-          <SliderRow
-            label="color glitch"
-            value={effectParams.vhsAberration}
-            min={0}
-            max={0.5}
-            step={0.02}
-            format={(v) => (v === 0 ? 'off' : v.toFixed(2))}
-            onChange={(v) => handleParam('vhsAberration', v)}
-          />
-          <SliderRow
-            label="tape noise"
-            value={effectParams.vhsNoiseIntensity}
-            min={0}
-            max={0.5}
-            step={0.02}
-            format={(v) => (v === 0 ? 'off' : v.toFixed(2))}
-            onChange={(v) => handleParam('vhsNoiseIntensity', v)}
-          />
-          <SliderRow
-            label="crt curvature"
-            value={effectParams.vhsCurvature}
-            min={0}
-            max={0.5}
-            step={0.02}
-            format={(v) => (v === 0 ? 'flat' : v.toFixed(2))}
-            onChange={(v) => handleParam('vhsCurvature', v)}
-          />
-        </div>
-      );
-
-    case 'matrix':
-      return (
-        <div className="flex flex-col gap-2">
-          <SliderRow
-            label="fall speed"
-            value={effectParams.matrixSpeed}
-            min={0.2}
-            max={4.0}
-            step={0.1}
-            format={(v) => `${v.toFixed(1)}x`}
-            onChange={(v) => handleParam('matrixSpeed', v)}
-          />
-          <SliderRow
-            label="stream density"
-            value={effectParams.matrixDensity}
-            min={10}
-            max={100}
-            step={2}
-            format={(v) => `${v}`}
-            onChange={(v) => handleParam('matrixDensity', v)}
-          />
-        </div>
-      );
-
-    case 'pixelSort':
-      return (
-        <div className="flex flex-col gap-2">
-          <SliderRow
-            label="sort threshold"
-            value={effectParams.sortThreshold}
-            min={0.05}
-            max={0.95}
-            step={0.05}
-            format={(v) => v.toFixed(2)}
-            onChange={(v) => handleParam('sortThreshold', v)}
-          />
-          <SliderRow
-            label="streak span"
-            value={effectParams.sortSpan}
-            min={5}
-            max={100}
-            step={1}
-            format={(v) => `${v} px`}
-            onChange={(v) => handleParam('sortSpan', v)}
-          />
-          <button
-            type="button"
-            onClick={() =>
-              handleParam(
-                'sortDirection',
-                effectParams.sortDirection === 0 ? 1 : 0
-              )
-            }
-            className="flex h-6 items-center justify-between bg-raised px-2 text-control hover:bg-active"
-          >
-            <span>direction</span>
-            <span className="tabular-nums text-highlight">
-              {effectParams.sortDirection === 0 ? '→ horizontal' : '↓ vertical'}
-            </span>
-          </button>
-        </div>
-      );
-
-    case 'blockify':
-      return (
-        <div className="flex flex-col gap-2">
-          <SliderRow
-            label="block size"
-            value={effectParams.genericA}
-            min={2}
-            max={64}
-            step={1}
-            format={(v) => `${v} px`}
-            onChange={(v) => handleParam('genericA', v)}
-          />
-          <SliderRow
-            label="grid line"
-            value={effectParams.genericB}
-            min={0}
-            max={1}
-            step={0.05}
-            format={(v) => (v === 0 ? 'off' : v.toFixed(2))}
-            onChange={(v) => handleParam('genericB', v)}
-          />
-        </div>
-      );
-
-    case 'dots':
-    case 'contour':
-    case 'threshold':
-    case 'edgeDetect':
-    case 'crosshatch':
-    case 'waveLines':
-    case 'noise':
-    case 'voronoi':
-      return (
-        <div className="flex flex-col gap-2">
-          <SliderRow
-            label="scale / frequency"
-            value={effectParams.genericA}
-            min={2}
-            max={32}
-            step={1}
-            format={(v) => `${v}`}
-            onChange={(v) => handleParam('genericA', v)}
-          />
-          <SliderRow
-            label="intensity / radius"
-            value={effectParams.genericB}
-            min={0.1}
-            max={3.0}
-            step={0.1}
-            format={(v) => v.toFixed(1)}
-            onChange={(v) => handleParam('genericB', v)}
-          />
-        </div>
-      );
-
-    default:
-      return (
-        <div className="text-control text-dim py-1">
-          Standard tone processing active.
-        </div>
-      );
+  if (!selectedPass) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center text-control text-dim">
+        <Sliders size={20} className="mb-2 opacity-40" />
+        <p className="max-w-[190px]">
+          Select an effect from the stack or click <span className="text-highlight">+ Add Effect</span> to adjust parameters.
+        </p>
+      </div>
+    );
   }
+
+  const definition = getEffectDefinition(selectedPass.effectId);
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Pass Header & Meta Badges */}
+      <div className="flex items-center justify-between border-b border-hairline pb-2">
+        <div className="flex items-center gap-1.5">
+          <span className="font-bold text-highlight text-control truncate">
+            {definition?.label || selectedPass.effectId}
+          </span>
+          {!selectedPass.enabled && (
+            <span className="px-1 text-[10px] bg-raised text-dim border border-hairline">
+              bypassed
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="px-1 text-[10px] bg-raised text-dim border border-hairline uppercase">
+            {definition?.category || 'stylize'}
+          </span>
+          <span className="px-1 text-[10px] bg-raised text-dim border border-hairline" title="Cost weight">
+            w:{definition?.costWeight ?? 1}
+          </span>
+        </div>
+      </div>
+
+      {/* Compositing Card (D-03): Intensity & Blend Mode */}
+      <div className="flex flex-col gap-2 border-b border-hairline pb-3">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-dim">
+          Compositing
+        </div>
+        <SliderRow
+          label="intensity"
+          value={selectedPass.intensity}
+          min={0.0}
+          max={1.0}
+          step={0.01}
+          format={(v) => `${Math.round(v * 100)}%`}
+          onChange={(val) => {
+            setEffectIntensity(selectedPass.instanceId, val);
+            if (onParamChange) onParamChange('intensity', val);
+          }}
+        />
+        <label className="flex h-6 items-center justify-between text-control">
+          <span>blend mode</span>
+          <select
+            value={selectedPass.blendMode}
+            onChange={(e) => {
+              const mode = e.target.value as BlendMode;
+              setEffectBlendMode(selectedPass.instanceId, mode);
+              if (onParamChange) onParamChange('blendMode', mode);
+            }}
+            className="h-6 bg-raised px-2 text-control text-highlight hover:bg-active focus-visible:bg-active"
+          >
+            <option value="normal">normal</option>
+            <option value="multiply">multiply</option>
+            <option value="screen">screen</option>
+            <option value="add">add</option>
+          </select>
+        </label>
+      </div>
+
+      {/* Dynamic Schema Parameters Card (D-20, D-22) */}
+      <div className="flex flex-col gap-2">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-dim">
+          Parameters
+        </div>
+
+        {definition &&
+          Object.entries(definition.parameters).map(([key, schema]) => {
+            const currentValue = selectedPass.parameters[key] ?? schema.default;
+
+            if (schema.type === 'float' || schema.type === 'int') {
+              const min = schema.min ?? 0;
+              const max = schema.max ?? 100;
+              const step = schema.step ?? (schema.type === 'int' ? 1 : 0.05);
+              const unit = schema.unit ?? '';
+
+              const formatVal = (v: number) => {
+                if (schema.type === 'int') return `${Math.round(v)}${unit ? ' ' + unit : ''}`;
+                if (unit === 'deg') return `${Math.round(v)}°`;
+                if (unit === '%') return `${Math.round(v * 100)}%`;
+                if (unit) return `${Number.isInteger(v) ? v : v.toFixed(2)} ${unit}`;
+                return Number.isInteger(v) ? `${v}` : v.toFixed(2);
+              };
+
+              return (
+                <SliderRow
+                  key={key}
+                  label={formatParamLabel(key)}
+                  value={Number(currentValue)}
+                  min={min}
+                  max={max}
+                  step={step}
+                  format={formatVal}
+                  onChange={(val) => {
+                    const parsed = schema.type === 'int' ? Math.round(val) : val;
+                    updatePassParam(selectedPass.instanceId, key, parsed);
+                    if (onParamChange) onParamChange(key, parsed);
+                  }}
+                />
+              );
+            }
+
+            if (schema.type === 'boolean') {
+              const isChecked = Boolean(currentValue);
+              return (
+                <div key={key} className="flex h-6 items-center justify-between text-control">
+                  <span>{formatParamLabel(key)}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isChecked}
+                    aria-label={formatParamLabel(key)}
+                    onClick={() => {
+                      const nextVal = !isChecked;
+                      updatePassParam(selectedPass.instanceId, key, nextVal);
+                      if (onParamChange) onParamChange(key, nextVal);
+                    }}
+                    className={`flex h-5 w-9 items-center px-0.5 border border-hairline transition-colors ${
+                      isChecked ? 'bg-active text-highlight' : 'bg-base text-dim'
+                    }`}
+                  >
+                    <span
+                      className={`h-3.5 w-3.5 bg-highlight transition-transform ${
+                        isChecked ? 'translate-x-4' : 'translate-x-0 bg-dim'
+                      }`}
+                    />
+                  </button>
+                </div>
+              );
+            }
+
+            if (schema.type === 'select') {
+              return (
+                <label key={key} className="flex h-6 items-center justify-between text-control">
+                  <span>{formatParamLabel(key)}</span>
+                  <select
+                    value={String(currentValue)}
+                    onChange={(e) => {
+                      updatePassParam(selectedPass.instanceId, key, e.target.value);
+                      if (onParamChange) onParamChange(key, e.target.value);
+                    }}
+                    className="h-6 bg-raised px-2 text-control text-highlight hover:bg-active focus-visible:bg-active"
+                  >
+                    {schema.options?.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              );
+            }
+
+            return null;
+          })}
+
+        {/* ASCII Glyph Atlas Options (SHADER-01) */}
+        {selectedPass.effectId === 'ascii' && (
+          <div className="flex flex-col gap-2 pt-1 border-t border-hairline">
+            <label className="flex h-6 items-center justify-between text-control">
+              <span>glyph ramp</span>
+              <select
+                value={ascii.rampPreset}
+                onChange={(e) =>
+                  updateAscii({ rampPreset: e.target.value as RampPreset, customChars: '' })
+                }
+                className="h-6 bg-raised px-2 text-control text-highlight hover:bg-active focus-visible:bg-active"
+              >
+                <option value="standard">standard</option>
+                <option value="dense">dense</option>
+                <option value="simple">simple</option>
+                <option value="blocks">blocks</option>
+              </select>
+            </label>
+            <label className="flex h-6 items-center justify-between gap-2 text-control">
+              <span className="shrink-0">custom ramp</span>
+              <input
+                type="text"
+                value={ascii.customChars}
+                placeholder="(uses preset)"
+                onChange={(e) => updateAscii({ customChars: e.target.value })}
+                className="h-6 w-36 bg-raised px-2 text-control text-highlight placeholder:text-dim hover:bg-active focus-visible:bg-active"
+              />
+            </label>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** Slider: 1px hairline track, square thumb, label left / tabular value right. */

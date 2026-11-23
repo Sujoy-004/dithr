@@ -1,18 +1,24 @@
 import type { ReactNode } from 'react';
 import { useStudioStore } from '../../store/useStudioStore';
+import { getEffectDefinition } from '../../engine/registry';
 import EffectInspector from '../panels/EffectInspector';
 import ToneControls from '../panels/ToneControls';
 import ExportDrawer from '../panels/ExportDrawer';
 
 /**
- * Right docked rail (280px) — inspector groups (D-03): dynamic EffectInspector (SHADER-02),
+ * Right docked rail (280px) — inspector groups (D-03): dynamic EffectInspector (SHADER-02, FX-01),
  * pre-tone sliders (SHADER-03), and tabbed ExportDrawer (D-08, MEDIA-03).
  */
 export default function RightRail() {
   const rightCollapsed = useStudioStore((s) => s.rightCollapsed);
   const toggleRightRail = useStudioStore((s) => s.toggleRightRail);
   const toggleLeftRail = useStudioStore((s) => s.toggleLeftRail);
-  const effect = useStudioStore((s) => s.effect);
+  const activeStack = useStudioStore((s) => s.activeStack);
+  const selectedPassId = useStudioStore((s) => s.selectedPassId);
+
+  const selectedPass = activeStack.find((p) => p.instanceId === selectedPassId);
+  const def = selectedPass ? getEffectDefinition(selectedPass.effectId) : undefined;
+  const effectTitle = def?.label || selectedPass?.effectId || 'none';
 
   if (rightCollapsed) {
     return (
@@ -27,7 +33,7 @@ export default function RightRail() {
           <span aria-hidden>◧</span>
         </RailButton>
         <span className="mt-8 -rotate-90 text-control text-dim whitespace-nowrap">
-          inspector · {effect}
+          inspector · {effectTitle}
         </span>
       </aside>
     );
@@ -45,7 +51,7 @@ export default function RightRail() {
         className="fixed md:relative inset-y-6 md:inset-y-0 right-0 z-30 flex w-72 max-w-[85vw] shrink-0 flex-col overflow-y-auto border-l border-hairline bg-base shadow-2xl md:shadow-none"
         aria-label="Right rail"
       >
-        <GroupHeader title="effect parameters" state={effect} />
+        <GroupHeader title="effect parameters" state={effectTitle} />
         <div className="px-4 pb-3">
           <EffectInspector />
         </div>

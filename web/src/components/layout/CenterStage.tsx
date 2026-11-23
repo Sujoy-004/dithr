@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from 'react';
 import * as THREE from 'three/webgpu';
-import { useStudioStore, registerVideoElement } from '../../store/useStudioStore';
+import { useStudioStore, registerVideoElement, registerPipeline } from '../../store/useStudioStore';
 import { StudioPipeline } from '../../engine/Pipeline';
 import { detectGpuCapabilities, TIER_CONFIGS } from '../../engine/capabilities';
 import ViewportHUD from '../canvas/ViewportHUD';
@@ -29,6 +29,7 @@ export default function CenterStage() {
   const ascii = useStudioStore((s) => s.ascii);
   const effect = useStudioStore((s) => s.effect);
   const effectParams = useStudioStore((s) => s.effectParams);
+  const activeStack = useStudioStore((s) => s.activeStack);
   const activeTier = useStudioStore((s) => s.activeTier);
   const setDetectedCapabilities = useStudioStore((s) => s.setDetectedCapabilities);
   const setRenderStatus = useStudioStore((s) => s.setRenderStatus);
@@ -64,6 +65,7 @@ export default function CenterStage() {
 
     const pipeline = new StudioPipeline({ canvas });
     pipelineRef.current = pipeline;
+    registerPipeline(pipeline);
 
     const startTime = performance.now();
     let lastFrameTime = startTime;
@@ -156,12 +158,19 @@ export default function CenterStage() {
           handleContentVisibility
         );
       }
+      registerPipeline(null);
       pipeline.dispose();
       pipelineRef.current = null;
     };
   }, [setRenderStatus]);
 
-  // 3. Synchronize tone, ascii, effect and parameters to pipeline
+  // 3. Synchronize tone, ascii, effect, active stack and parameters to pipeline
+  useEffect(() => {
+    if (pipelineRef.current) {
+      pipelineRef.current.syncStack(activeStack, activeTier);
+    }
+  }, [activeStack, activeTier]);
+
   useEffect(() => {
     if (pipelineRef.current) {
       pipelineRef.current.updateTone(tone);
