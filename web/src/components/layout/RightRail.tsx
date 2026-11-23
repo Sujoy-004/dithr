@@ -3,6 +3,7 @@ import { useStudioStore } from '../../store/useStudioStore';
 import { getEffectDefinition } from '../../engine/registry';
 import EffectInspector from '../panels/EffectInspector';
 import AudioPanel from '../panels/AudioPanel';
+import ThreeDPanel from '../panels/ThreeDPanel';
 import ToneControls from '../panels/ToneControls';
 import ExportDrawer from '../panels/ExportDrawer';
 
@@ -17,6 +18,7 @@ export default function RightRail() {
   const activeStack = useStudioStore((s) => s.activeStack);
   const selectedPassId = useStudioStore((s) => s.selectedPassId);
   const audioState = useStudioStore((s) => s.audioState);
+  const threeDState = useStudioStore((s) => s.threeDState);
 
   const selectedPass = activeStack.find((p) => p.instanceId === selectedPassId);
   const def = selectedPass ? getEffectDefinition(selectedPass.effectId) : undefined;
@@ -63,6 +65,12 @@ export default function RightRail() {
           state={audioState.enabled && audioState.status === 'live' ? 'live' : 'off'}
         />
         <AudioPanel />
+
+        <GroupHeader
+          title="3d scene & camera"
+          state={threeDState.primitive}
+        />
+        <ThreeDPanel />
 
         <GroupHeader title="pre-tone" state="rec.601" />
         <ToneControls />

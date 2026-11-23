@@ -13,6 +13,8 @@ import type {
   MediaType,
   ThemeMode,
   ToneSettings,
+  ThreeDPrimitiveType,
+  ThreeDState,
 } from '../types/studio';
 import type { QualityTier, GpuCapabilities } from '../engine/capabilities';
 import { getEffectDefinition } from '../engine/registry';
@@ -124,6 +126,14 @@ interface StudioState extends MediaState {
   addAudioMapping: (mapping: Omit<AudioMapping, 'id'>) => void;
   removeAudioMapping: (id: string) => void;
   updateAudioMapping: (id: string, patch: Partial<AudioMapping>) => void;
+
+  // 3D Scene & Camera State (D-15, D-16, D-17, FX-06)
+  threeDState: ThreeDState;
+  setThreeDPrimitive: (primitive: ThreeDPrimitiveType) => void;
+  setCustomMesh: (mesh: any | null, name: string | null) => void;
+  setThreeDAutoRotate: (autoRotate: boolean) => void;
+  setThreeDAutoRotateSpeed: (speed: number) => void;
+  resetThreeDCamera: () => void;
 }
 
 export const DEFAULT_TONE: ToneSettings = {
@@ -185,6 +195,15 @@ export const DEFAULT_AUDIO_STATE: AudioState = {
   sensitivity: 1.0,
   envelopePreset: 'standard',
   mappings: [],
+};
+
+export const DEFAULT_THREED_STATE: ThreeDState = {
+  primitive: 'torusKnot',
+  customMesh: null,
+  customMeshName: null,
+  autoRotate: true,
+  autoRotateSpeed: 1.0,
+  cameraResetTrigger: 0,
 };
 
 const DEFAULT_PAN: Pan = { x: 0, y: 0 };
@@ -605,6 +624,48 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         mappings: state.audioState.mappings.map((m) =>
           m.id === id ? { ...m, ...patch } : m
         ),
+      },
+    })),
+
+  // 3D Scene & Camera State (D-15, D-16, D-17, FX-06)
+  threeDState: DEFAULT_THREED_STATE,
+
+  setThreeDPrimitive: (primitive) => {
+    set((state) => ({
+      threeDState: { ...state.threeDState, primitive },
+    }));
+    const stack = get().activeStack;
+    const threeDPass = stack.find((p) => p.effectId === 'threeD');
+    if (threeDPass) {
+      get().updatePassParam(threeDPass.instanceId, 'primitive', primitive);
+    }
+  },
+
+  setCustomMesh: (customMesh, customMeshName) =>
+    set((state) => ({
+      threeDState: {
+        ...state.threeDState,
+        customMesh,
+        customMeshName,
+        primitive: customMesh ? 'custom' : state.threeDState.primitive,
+      },
+    })),
+
+  setThreeDAutoRotate: (autoRotate) =>
+    set((state) => ({
+      threeDState: { ...state.threeDState, autoRotate },
+    })),
+
+  setThreeDAutoRotateSpeed: (autoRotateSpeed) =>
+    set((state) => ({
+      threeDState: { ...state.threeDState, autoRotateSpeed },
+    })),
+
+  resetThreeDCamera: () =>
+    set((state) => ({
+      threeDState: {
+        ...state.threeDState,
+        cameraResetTrigger: state.threeDState.cameraResetTrigger + 1,
       },
     })),
 

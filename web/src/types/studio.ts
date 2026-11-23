@@ -88,6 +88,18 @@ export interface AudioState {
   mappings: AudioMapping[];
 }
 
+/** 3D scene & model state (D-15, D-16, D-17, FX-06). */
+export type ThreeDPrimitiveType = 'torusKnot' | 'sphere' | 'cube' | 'plane' | 'custom';
+
+export interface ThreeDState {
+  primitive: ThreeDPrimitiveType;
+  customMesh: any | null;
+  customMeshName: string | null;
+  autoRotate: boolean;
+  autoRotateSpeed: number;
+  cameraResetTrigger: number;
+}
+
 /** Export targets for the client-side export suite (D-08). */
 export type ExportFormat = 'png' | 'jpeg' | 'svg' | 'txt' | 'gif' | 'webm';
 
