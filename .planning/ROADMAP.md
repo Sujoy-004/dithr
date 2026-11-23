@@ -60,7 +60,7 @@ Plans:
   4. Analog CRT and VHS emulation renders phosphor decay, scanline curvature, tape tracking jitter, and bloom.
   5. Live microphone input or video audio frequency bands (bass, mid, treble) extracted via Web Audio `AnalyserNode` dynamically modulate shader parameters in real time at 60 FPS.
   6. User can load and render 3D meshes into real-time ASCII point clouds and rasterized depth fields.
-**Plans:** 2/6 plans executed
+**Plans:** 3/6 plans executed
 
 Plans:
 **Wave 1**
@@ -70,7 +70,7 @@ Plans:
 - [x] 02-02-PLAN.md — Hybrid Render Graph, PassPool & Engine Pipeline Execution
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 02-03-PLAN.md — LeftRail Effect Stack UI, Reorder & Schema-Driven Inspector
+- [x] 02-03-PLAN.md — LeftRail Effect Stack UI, Reorder & Schema-Driven Inspector
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 02-04-PLAN.md — Spatial Masks, RGB Channel Split & Advanced Analog CRT/VHS Emulation
@@ -123,7 +123,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Reliability & Performance Foundation | 5/5 | Planning complete | - |
-| 2. Shader Engine 2.0 & Advanced FX | 2/6 | Planning complete | - |
+| 2. Shader Engine 2.0 & Advanced FX | 3/6 | Planning complete | - |
 | 3. Creative Workspace & Export Studio | 0/0 | Not started | - |
 | 4. Persistence, Community & Distribution | 0/0 | Not started | - |
 
