@@ -10,6 +10,10 @@ import {
   getCurrentAudioSource,
   getOrCreateAudioGraph,
 } from '../export/audioGraph';
+import {
+  AudioReactivityEngine,
+  AUDIO_ENVELOPE_PRESETS,
+} from '../engine/audio/AudioReactivityEngine';
 
 describe('audioGraph Web Audio Singleton & Analyser (D-10, D-12, D-13, FX-05)', () => {
   beforeEach(() => {
@@ -112,5 +116,142 @@ describe('audioGraph Web Audio Singleton & Analyser (D-10, D-12, D-13, FX-05)', 
     // Calling analyser node still shares the exact same context
     const analyser = getSharedAnalyserNode();
     expect(analyser.fftSize).toBe(256);
+  });
+});
+
+describe('AudioReactivityEngine & Envelope Smoothing (D-11, D-12, D-14, FX-05)', () => {
+  it('pre-allocates a single Uint8Array(128) with zero per-frame allocation', () => {
+    const engine = new AudioReactivityEngine();
+    const buf1 = engine.getFrequencyBuffer();
+    const buf2 = engine.getFrequencyBuffer();
+
+    expect(buf1).toBe(buf2);
+    expect(buf1.length).toBe(128);
+  });
+
+  it('partitions 128 bins into Bass (0-2), Mid (3-14), and Treble (15-63)', () => {
+    const engine = new AudioReactivityEngine({ attackMs: 0.1, releaseMs: 0.1 }); // instantaneous response
+
+    // 1. Bass only: bins 0, 1, 2 = 255
+    const bassData = new Uint8Array(128);
+    bassData[0] = 255;
+    bassData[1] = 255;
+    bassData[2] = 255;
+    let result = engine.processRawData(bassData, 100);
+    expect(result.bass).toBeCloseTo(1.0, 2);
+    expect(result.mid).toBe(0.0);
+    expect(result.treble).toBe(0.0);
+
+    engine.reset();
+
+    // 2. Mid only: bins 3..14 = 255
+    const midData = new Uint8Array(128);
+    for (let i = 3; i <= 14; i++) midData[i] = 255;
+    result = engine.processRawData(midData, 100);
+    expect(result.bass).toBe(0.0);
+    expect(result.mid).toBeCloseTo(1.0, 2);
+    expect(result.treble).toBe(0.0);
+
+    engine.reset();
+
+    // 3. Treble only: bins 15..63 = 255
+    const trebleData = new Uint8Array(128);
+    for (let i = 15; i <= 63; i++) trebleData[i] = 255;
+    result = engine.processRawData(trebleData, 100);
+    expect(result.bass).toBe(0.0);
+    expect(result.mid).toBe(0.0);
+    expect(result.treble).toBeCloseTo(1.0, 2);
+
+    engine.reset();
+
+    // 4. Inactive high frequencies: bins 64..127 do not leak into bands
+    const highData = new Uint8Array(128);
+    for (let i = 64; i < 128; i++) highData[i] = 255;
+    result = engine.processRawData(highData, 100);
+    expect(result.bass).toBe(0.0);
+    expect(result.mid).toBe(0.0);
+    expect(result.treble).toBe(0.0);
+  });
+
+  it('asymmetric attack/release reaches ~63% on attack (20ms) and decays over release (200ms)', () => {
+    const engine = new AudioReactivityEngine({
+      attackMs: 20.0,
+      releaseMs: 200.0,
+      sensitivity: 1.0,
+    });
+
+    const stepUp = new Uint8Array(128);
+    stepUp[0] = 255;
+    stepUp[1] = 255;
+    stepUp[2] = 255;
+
+    // Step up for exactly 20ms (one time constant):
+    // Target is 1.0, starting from 0.0
+    // Expected = 1.0 - exp(-20/20) = 1.0 - exp(-1) ≈ 0.63212
+    const afterAttack = engine.processRawData(stepUp, 20.0);
+    expect(afterAttack.bass).toBeCloseTo(1.0 - Math.exp(-1), 3);
+
+    // Let it saturate to 1.0 with a long step
+    engine.processRawData(stepUp, 500.0);
+    expect(engine.getSmoothedValues().bass).toBeCloseTo(1.0, 3);
+
+    // Step down to 0 for exactly 200ms (one release time constant):
+    // Target is 0.0, starting from 1.0
+    // Expected = 1.0 - (1.0 - exp(-200/200)) = exp(-1) ≈ 0.36788
+    const stepDown = new Uint8Array(128);
+    const afterRelease = engine.processRawData(stepDown, 200.0);
+    expect(afterRelease.bass).toBeCloseTo(Math.exp(-1), 3);
+  });
+
+  it('scales band energies with sensitivity and clamps strictly to [0.0, 1.0]', () => {
+    const engine = new AudioReactivityEngine({
+      attackMs: 0.1,
+      releaseMs: 0.1,
+      sensitivity: 3.0, // High sensitivity
+    });
+
+    // Feed 50% energy (128 / 255 ≈ 0.5)
+    const midEnergy = new Uint8Array(128);
+    for (let i = 0; i < 3; i++) midEnergy[i] = 128;
+    const res = engine.processRawData(midEnergy, 100);
+
+    // 0.5 * 3.0 = 1.5 -> clamped strictly to 1.0
+    expect(res.bass).toBe(1.0);
+
+    // Now low sensitivity = 0.5 on 100% input
+    engine.sensitivity = 0.5;
+    const fullEnergy = new Uint8Array(128);
+    for (let i = 0; i < 3; i++) fullEnergy[i] = 255;
+    const res2 = engine.processRawData(fullEnergy, 100);
+    expect(res2.bass).toBeCloseTo(0.5, 2);
+  });
+
+  it('supports per-band attack and release overrides', () => {
+    const engine = new AudioReactivityEngine({
+      attackMs: 50.0,
+      releaseMs: 500.0,
+      bassAttack: 10.0,
+      bassRelease: 100.0,
+    });
+
+    const stepUp = new Uint8Array(128);
+    stepUp[0] = 255;
+    stepUp[1] = 255;
+    stepUp[2] = 255;
+
+    // After 10ms, bass (with bassAttack=10) should reach ~63%
+    const res = engine.processRawData(stepUp, 10.0);
+    expect(res.bass).toBeCloseTo(1.0 - Math.exp(-1), 3);
+  });
+
+  it('supports presets (punchy, standard, smooth)', () => {
+    const engine = new AudioReactivityEngine();
+    engine.setPreset('punchy');
+    expect(engine.attackMs).toBe(AUDIO_ENVELOPE_PRESETS.punchy.attackMs);
+    expect(engine.releaseMs).toBe(AUDIO_ENVELOPE_PRESETS.punchy.releaseMs);
+
+    engine.setPreset('smooth');
+    expect(engine.attackMs).toBe(AUDIO_ENVELOPE_PRESETS.smooth.attackMs);
+    expect(engine.releaseMs).toBe(AUDIO_ENVELOPE_PRESETS.smooth.releaseMs);
   });
 });
