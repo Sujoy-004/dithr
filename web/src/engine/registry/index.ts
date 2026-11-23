@@ -23,6 +23,7 @@ import { noiseEffect } from './stylize/noise';
 import { voronoiEffect } from './stylize/voronoi';
 import { dotsEffect } from './stylize/dots';
 import { contourEffect } from './stylize/contour';
+import { threeDEffect } from './stylize/threeD';
 
 // Modulate effects
 import { grainEffect } from './modulate/grain';
@@ -48,6 +49,7 @@ export const ALL_EFFECT_DEFINITIONS: readonly EffectDefinition[] = [
   voronoiEffect,
   dotsEffect,
   contourEffect,
+  threeDEffect,
   grainEffect,
   rgbSplitEffect,
   masksEffect,
@@ -174,6 +176,7 @@ export {
   voronoiEffect,
   dotsEffect,
   contourEffect,
+  threeDEffect,
   grainEffect,
   rgbSplitEffect,
   masksEffect,

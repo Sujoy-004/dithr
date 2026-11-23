@@ -124,22 +124,23 @@ describe('Tracer Pipeline: Color Science & Registry Slice (D-01, D-05, D-06, D-2
       'voronoi',
       'dots',
       'contour',
+      'threeD',
     ];
     const EXPECTED_MODULATE_IDS = ['grain', 'rgbSplit', 'masks', 'crtVhs'];
 
     it('registers Grainrad and advanced FX modes in EffectRegistry', () => {
       const registry = new EffectRegistry();
       const all = registry.getAll();
-      expect(all.length).toBe(19);
+      expect(all.length).toBe(20);
 
       const allIds = all.map((e) => e.id).sort();
       const expectedIds = [...EXPECTED_STYLIZE_IDS, ...EXPECTED_MODULATE_IDS].sort();
       expect(allIds).toEqual(expectedIds);
     });
 
-    it('partitions all modes into stylize (15) and modulate (4) per D-01', () => {
+    it('partitions all modes into stylize (16) and modulate (4) per D-01', () => {
       const grouped = getGroupedEffects();
-      expect(grouped.stylize.length).toBe(15);
+      expect(grouped.stylize.length).toBe(16);
       expect(grouped.modulate.length).toBe(4);
 
       const stylizeIds = grouped.stylize.map((e) => e.id);

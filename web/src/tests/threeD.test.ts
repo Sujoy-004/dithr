@@ -8,6 +8,19 @@ import {
 } from '../services/meshLoader';
 import { createPrimitive } from '../engine/3d/PrimitiveFactory';
 import { OrbitController } from '../engine/3d/OrbitController';
+import { threeDEffect } from '../engine/registry/stylize/threeD';
+import {
+  createAsciiPointCloudMaterial,
+  buildAsciiPointCloudNode,
+} from '../engine/3d/AsciiPointCloud';
+import {
+  linearizeDepth,
+  createDepthRasterMaterial,
+  buildDepthRasterNode,
+} from '../engine/3d/DepthRaster';
+import { compileLinearEffectStack, EffectRegistry } from '../engine/registry/index';
+import type { ActiveEffectPass } from '../engine/registry/types';
+import { vec4, uniform, vec2 } from 'three/tsl';
 
 describe('3D Mesh Ingestion & Security Validation (D-15, T-02-11, T-02-12)', () => {
   it('rejects files exceeding the 50MB ceiling', async () => {
@@ -215,5 +228,142 @@ describe('OrbitController (D-17)', () => {
     expect(controller.radius).toBe(3.5);
     expect(controller.theta).toBe(0.0);
     expect(controller.phi).toBe(1.2);
+  });
+});
+
+describe('Dual-Mode 3D ASCII Generator & Stack Compositing (D-16, D-18, D-19, FX-06)', () => {
+  it('registers threeD effect definition with costWeight 3 and requiresPass true', () => {
+    expect(threeDEffect.id).toBe('threeD');
+    expect(threeDEffect.label).toBe('3D ASCII');
+    expect(threeDEffect.category).toBe('stylize');
+    expect(threeDEffect.costWeight).toBe(3);
+    expect(threeDEffect.requiresPass).toBe(true);
+
+    // Verify parameter schema
+    const params = threeDEffect.parameters;
+    expect(params.renderMode).toBeDefined();
+    expect(params.renderMode.options).toEqual(['pointCloud', 'depthRaster']);
+    expect(params.pointSize).toBeDefined();
+    expect(params.density).toBeDefined();
+    expect(params.keyLightIntensity).toBeDefined();
+    expect(params.rimLightIntensity).toBeDefined();
+    expect(params.depthFalloff).toBeDefined();
+    expect(params.primitive).toBeDefined();
+  });
+
+  it('creates PointsNodeMaterial with inverse depth size scaling and key/rim shading', () => {
+    const dummyTexture = new THREE.Texture();
+    const material = createAsciiPointCloudMaterial({
+      pointSize: uniform(16.0),
+      keyLightIntensity: uniform(1.2),
+      rimLightIntensity: uniform(0.9),
+      depthFalloff: uniform(0.5),
+      atlasTexture: dummyTexture,
+      charCount: uniform(10.0),
+    });
+
+    expect(material).toBeInstanceOf(THREE.PointsNodeMaterial);
+    expect(material.sizeNode).toBeDefined();
+    expect(material.sizeNode!.isNode).toBe(true);
+    expect(material.colorNode).toBeDefined();
+    expect(material.colorNode!.isNode).toBe(true);
+    expect(material.transparent).toBe(true);
+  });
+
+  it('creates MeshBasicNodeMaterial outputting linearized normalized depth', () => {
+    const material = createDepthRasterMaterial(0.1, 50.0);
+
+    expect(material).toBeInstanceOf(THREE.MeshBasicNodeMaterial);
+    expect(material.colorNode).toBeDefined();
+    expect(material.colorNode!.isNode).toBe(true);
+
+    const linDepthNode = linearizeDepth(uniform(0.5), 0.1, 50.0);
+    expect(linDepthNode).toBeDefined();
+    expect(linDepthNode.isNode).toBe(true);
+  });
+
+  it('builds valid TSL nodes for point cloud and depth raster modes', () => {
+    const env = {
+      resolution: vec2(1920, 1080),
+      time: uniform(1.0),
+      seed: uniform(42.0),
+    };
+
+    // Point cloud node
+    const pointCloudNode = buildAsciiPointCloudNode({
+      pointSize: uniform(16.0),
+      keyLightIntensity: uniform(1.0),
+      rimLightIntensity: uniform(0.8),
+      depthFalloff: uniform(0.5),
+      resolution: env.resolution,
+      time: env.time,
+    });
+    expect(pointCloudNode).toBeDefined();
+    expect(pointCloudNode.isNode).toBe(true);
+
+    // Depth raster node
+    const depthRasterNode = buildDepthRasterNode({
+      pointSize: uniform(16.0),
+      near: uniform(0.1),
+      far: uniform(50.0),
+      resolution: env.resolution,
+    });
+    expect(depthRasterNode).toBeDefined();
+    expect(depthRasterNode.isNode).toBe(true);
+
+    // Dual-mode evaluation via threeDEffect.buildNode
+    const nodeFromEffectPC = threeDEffect.buildNode(
+      vec4(0.0),
+      { renderMode: 'pointCloud', pointSize: uniform(16.0) },
+      env
+    );
+    expect(nodeFromEffectPC).toBeDefined();
+    expect(nodeFromEffectPC.isNode).toBe(true);
+
+    const nodeFromEffectDR = threeDEffect.buildNode(
+      vec4(0.0),
+      { renderMode: 'depthRaster', pointSize: uniform(16.0) },
+      env
+    );
+    expect(nodeFromEffectDR).toBeDefined();
+    expect(nodeFromEffectDR.isNode).toBe(true);
+  });
+
+  it('composites 3D ASCII pass with upstream passes in the effect stack (D-19)', () => {
+    const registry = new EffectRegistry();
+    const sourceNode = vec4(0.2, 0.4, 0.6, 1.0);
+
+    const activeStack: ActiveEffectPass[] = [
+      {
+        instanceId: 'pass-tone',
+        effectId: 'tone',
+        enabled: true,
+        intensity: 1.0,
+        blendMode: 'normal',
+        parameters: { brightness: 1.2 },
+      },
+      {
+        instanceId: 'pass-3d',
+        effectId: 'threeD',
+        enabled: true,
+        intensity: 0.8,
+        blendMode: 'screen',
+        parameters: {
+          renderMode: 'pointCloud',
+          pointSize: 16.0,
+          primitive: 'torusKnot',
+        },
+      },
+    ];
+
+    const env = {
+      resolution: vec2(1280, 720),
+      time: uniform(0.0),
+      seed: uniform(1.0),
+    };
+
+    const compiledNode = compileLinearEffectStack(sourceNode, activeStack, registry, env);
+    expect(compiledNode).toBeDefined();
+    expect(compiledNode.isNode).toBe(true);
   });
 });
