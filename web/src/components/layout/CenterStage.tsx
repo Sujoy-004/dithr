@@ -6,6 +6,7 @@ import { StudioPipeline } from '../../engine/Pipeline';
 import { detectGpuCapabilities, TIER_CONFIGS } from '../../engine/capabilities';
 import ViewportHUD from '../canvas/ViewportHUD';
 import Dropzone from '../canvas/Dropzone';
+import MaskHandles from '../canvas/MaskHandles';
 
 /**
  * Center Stage (D-03, D-08, RELY-09, RELY-10): canvas viewport with
@@ -335,16 +336,24 @@ export default function CenterStage() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
       >
-        {/* WebGPU / WebGL2 Engine Canvas */}
-        <canvas
-          ref={canvasRef}
-          className="block bg-base"
+        {/* Canvas and on-canvas overlay wrapper */}
+        <div
+          className="relative block"
           style={{
             width: dimensions ? `${dimensions.width}px` : '800px',
             height: dimensions ? `${dimensions.height}px` : '600px',
           }}
-          aria-label="Media viewport canvas"
-        />
+        >
+          {/* WebGPU / WebGL2 Engine Canvas */}
+          <canvas
+            ref={canvasRef}
+            className="block w-full h-full bg-base"
+            aria-label="Media viewport canvas"
+          />
+
+          {/* Interactive Mask Handles Overlay (D-07, FX-03) */}
+          <MaskHandles />
+        </div>
 
         {/* Single persistent in-viewport video playback element for video and live webcam */}
         <video

@@ -4,6 +4,10 @@ import {
   rgbSplitEffect,
   computeChannelOffsets,
 } from '../engine/registry/modulate/rgbSplit';
+import {
+  masksEffect,
+  computeMaskValue,
+} from '../engine/registry/modulate/masks';
 
 describe('RGB Channel Separation (Task 1: D-08, FX-03)', () => {
   it('registers rgbSplit in EffectRegistry under modulate category with costWeight 1', () => {
@@ -139,5 +143,184 @@ describe('RGB Channel Separation (Task 1: D-08, FX-03)', () => {
     // Executing the TSL Fn node returns a node structure
     const output = typeof node === 'function' ? node() : node;
     expect(output).toBeDefined();
+  });
+});
+
+describe('Procedural Spatial Masks (Task 2: D-07, FX-03, T-02-08)', () => {
+  it('registers masks in EffectRegistry under modulate category with costWeight 1', () => {
+    const def = getEffectDefinition('masks');
+    expect(def).toBeDefined();
+    expect(def?.id).toBe('masks');
+    expect(def?.category).toBe('modulate');
+    expect(def?.costWeight).toBe(1);
+    expect(def?.requiresPass).toBe(false);
+  });
+
+  it('exposes full numeric parameter schema with vignette, box, and circle modes', () => {
+    const params = masksEffect.parameters;
+    expect(params.shape).toMatchObject({
+      type: 'select',
+      default: 'vignette',
+      options: ['vignette', 'box', 'circle'],
+    });
+    expect(params.centerX).toMatchObject({
+      type: 'float',
+      default: 0.5,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+    });
+    expect(params.centerY).toMatchObject({
+      type: 'float',
+      default: 0.5,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+    });
+    expect(params.width).toMatchObject({
+      type: 'float',
+      default: 0.8,
+      min: 0.05,
+      max: 1.0,
+      step: 0.01,
+    });
+    expect(params.height).toMatchObject({
+      type: 'float',
+      default: 0.8,
+      min: 0.05,
+      max: 1.0,
+      step: 0.01,
+    });
+    expect(params.radius).toMatchObject({
+      type: 'float',
+      default: 0.4,
+      min: 0.05,
+      max: 1.0,
+      step: 0.01,
+    });
+    expect(params.feather).toMatchObject({
+      type: 'float',
+      default: 0.2,
+      min: 0.01,
+      max: 1.0,
+      step: 0.01,
+    });
+    expect(params.invert).toMatchObject({
+      type: 'boolean',
+      default: false,
+    });
+    expect(params.strength).toMatchObject({
+      type: 'float',
+      default: 1.0,
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+    });
+  });
+
+  it('computes circle distance field with center at 1.0 and smooth feather falloff', () => {
+    const params = {
+      shape: 'circle' as const,
+      centerX: 0.5,
+      centerY: 0.5,
+      radius: 0.4,
+      feather: 0.2,
+      invert: false,
+      strength: 1.0,
+    };
+
+    // Center is completely inside inner boundary (0.5, 0.5) -> 1.0
+    const centerVal = computeMaskValue(0.5, 0.5, params);
+    expect(centerVal).toBe(1.0);
+
+    // Deep inside circle (0.5, 0.7) -> distance is 0.2 < 0.3 -> 1.0
+    const innerVal = computeMaskValue(0.5, 0.7, params);
+    expect(innerVal).toBe(1.0);
+
+    // On outer boundary (dist = 0.5) -> 0.0
+    const outerVal = computeMaskValue(0.5, 1.0, params);
+    expect(outerVal).toBe(0.0);
+
+    // Well outside circle (dist = 0.7) -> 0.0
+    const farVal = computeMaskValue(0.0, 0.0, params);
+    expect(farVal).toBe(0.0);
+
+    // Mid-feather transition (dist = 0.4) -> should be between 0 and 1
+    const midVal = computeMaskValue(0.5, 0.9, params);
+    expect(midVal).toBeGreaterThan(0.0);
+    expect(midVal).toBeLessThan(1.0);
+  });
+
+  it('computes box distance field with rectangular bounds and smooth feather falloff', () => {
+    const params = {
+      shape: 'box' as const,
+      centerX: 0.5,
+      centerY: 0.5,
+      width: 0.6,
+      height: 0.4,
+      feather: 0.1,
+      invert: false,
+      strength: 1.0,
+    };
+
+    // Center is 1.0
+    expect(computeMaskValue(0.5, 0.5, params)).toBe(1.0);
+
+    // Inside box bounds: x = 0.6 (dx = 0.1 < 0.3), y = 0.55 (dy = 0.05 < 0.2)
+    expect(computeMaskValue(0.6, 0.55, params)).toBe(1.0);
+
+    // Outside box in X: x = 0.9 (dx = 0.4 > 0.3 + feather/2 = 0.35)
+    expect(computeMaskValue(0.9, 0.5, params)).toBe(0.0);
+
+    // Outside box in Y: y = 0.8 (dy = 0.3 > 0.2 + feather/2 = 0.25)
+    expect(computeMaskValue(0.5, 0.8, params)).toBe(0.0);
+  });
+
+  it('computes vignette with smooth falloff and responds to invert and strength', () => {
+    const normalParams = {
+      shape: 'vignette' as const,
+      centerX: 0.5,
+      centerY: 0.5,
+      radius: 0.4,
+      feather: 0.2,
+      invert: false,
+      strength: 1.0,
+    };
+
+    const invertedParams = {
+      ...normalParams,
+      invert: true,
+    };
+
+    const attenuatedParams = {
+      ...normalParams,
+      strength: 0.0, // 0 strength = no attenuation (1.0 everywhere)
+    };
+
+    // Normal: center 1.0, corner 0.0
+    expect(computeMaskValue(0.5, 0.5, normalParams)).toBe(1.0);
+    expect(computeMaskValue(0.0, 0.0, normalParams)).toBe(0.0);
+
+    // Inverted: center 0.0, corner 1.0
+    expect(computeMaskValue(0.5, 0.5, invertedParams)).toBe(0.0);
+    expect(computeMaskValue(0.0, 0.0, invertedParams)).toBe(1.0);
+
+    // Attenuated (strength 0): 1.0 everywhere
+    expect(computeMaskValue(0.5, 0.5, attenuatedParams)).toBe(1.0);
+    expect(computeMaskValue(0.0, 0.0, attenuatedParams)).toBe(1.0);
+  });
+
+  it('buildNode constructs valid TSL nodes for circle, box, and vignette', () => {
+    const shapes: Array<'vignette' | 'box' | 'circle'> = ['vignette', 'box', 'circle'];
+
+    for (const shape of shapes) {
+      const node = masksEffect.buildNode(
+        { rgb: { r: 0.7, g: 0.7, b: 0.7, mul: () => ({ r: 0.7, g: 0.7, b: 0.7 }) }, a: 1.0 },
+        { shape, centerX: 0.5, centerY: 0.5, radius: 0.4, width: 0.8, height: 0.8 }
+      );
+      expect(node).toBeDefined();
+      const output = typeof node === 'function' ? node() : node;
+      expect(output).toBeDefined();
+    }
   });
 });

@@ -27,6 +27,7 @@ import { contourEffect } from './stylize/contour';
 // Modulate effects
 import { grainEffect } from './modulate/grain';
 import { rgbSplitEffect } from './modulate/rgbSplit';
+import { masksEffect } from './modulate/masks';
 
 import { sRGBToLinear, linearTosRGB } from '../color/colorSpace';
 
@@ -48,6 +49,7 @@ export const ALL_EFFECT_DEFINITIONS: readonly EffectDefinition[] = [
   contourEffect,
   grainEffect,
   rgbSplitEffect,
+  masksEffect,
 ] as const;
 
 /**
@@ -172,4 +174,5 @@ export {
   contourEffect,
   grainEffect,
   rgbSplitEffect,
+  masksEffect,
 };
