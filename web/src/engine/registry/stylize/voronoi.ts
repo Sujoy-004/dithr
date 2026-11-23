@@ -50,7 +50,8 @@ export const voronoiEffect: EffectDefinition = {
 
     return Fn(() => {
       const st = uv();
-      const p = st.mul(resolution).div(scale.max(4.0));
+      const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
+      const p = st.mul(safeRes).div(scale.max(4.0));
       const f = fract(p).sub(0.5);
       const dist = f.mul(jitter.add(0.2)).length();
 

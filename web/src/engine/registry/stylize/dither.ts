@@ -56,7 +56,8 @@ export const ditherEffect: EffectDefinition = {
 
     return Fn(() => {
       const st = uv();
-      const pixelCoord = floor(st.mul(resolution));
+      const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
+      const pixelCoord = floor(st.mul(safeRes));
 
       const x = pixelCoord.x.mod(4.0);
       const y = pixelCoord.y.mod(4.0);

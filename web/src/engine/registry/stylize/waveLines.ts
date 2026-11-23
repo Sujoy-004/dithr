@@ -51,7 +51,7 @@ export const waveLinesEffect: EffectDefinition = {
     },
   },
   buildNode: (inputNode, uniforms, env) => {
-    const frequency = toNode(uniforms.frequency, 20.0);
+    const frequency = toNode(uniforms.frequency, 20.0).max(1.0);
     const amplitude = toNode(uniforms.amplitude, 0.5);
     const speed = toNode(uniforms.speed, 1.0);
     const time = env?.time ?? uniforms.time ?? float(0.0);

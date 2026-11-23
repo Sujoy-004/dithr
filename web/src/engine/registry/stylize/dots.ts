@@ -46,19 +46,20 @@ export const dotsEffect: EffectDefinition = {
     },
   },
   buildNode: (inputNode, uniforms, env) => {
-    const spacing = toNode(uniforms.spacing, 10.0);
+    const spacing = toNode(uniforms.spacing, 10.0).max(4.0);
     const radius = toNode(uniforms.radius, 1.0);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
-      const pixelCoord = st.mul(resolution);
-      const cell = fract(pixelCoord.div(spacing.max(4.0))).sub(0.5);
+      const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
+      const pixelCoord = st.mul(safeRes);
+      const cell = fract(pixelCoord.div(spacing)).sub(0.5);
       const dist = cell.length();
 
       const baseCol = inputNode;
       const lum = rec601Luminance(baseCol.rgb);
-      const dotR = lum.mul(radius).mul(0.5);
+      const dotR = lum.mul(radius).mul(0.5).min(0.5);
       const dotMask = dist.lessThanEqual(dotR).select(1.0, 0.0);
 
       return vec4(baseCol.rgb.mul(dotMask), baseCol.a ?? float(1.0));

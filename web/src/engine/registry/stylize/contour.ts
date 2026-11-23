@@ -44,7 +44,7 @@ export const contourEffect: EffectDefinition = {
     },
   },
   buildNode: (inputNode, uniforms) => {
-    const steps = toNode(uniforms.steps, 8.0);
+    const steps = toNode(uniforms.steps, 8.0).max(1.0);
     const lineWidth = toNode(uniforms.lineWidth, 0.15);
 
     return Fn(() => {

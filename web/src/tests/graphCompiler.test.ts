@@ -399,7 +399,7 @@ describe('GraphCompiler: Pass Fusion & Topology Hashing (D-03, D-06, D-21, D-22)
         requiresPass: false,
         requiresSpatialSampling: true,
         costWeight: 2,
-        buildNode: (input, uniforms, env) => {
+        buildNode: (input, _uniforms, env) => {
           stage0SampleAt = env?.sampleAt;
           return input;
         },
@@ -412,7 +412,7 @@ describe('GraphCompiler: Pass Fusion & Topology Hashing (D-03, D-06, D-21, D-22)
         requiresPass: false,
         requiresSpatialSampling: true,
         costWeight: 2,
-        buildNode: (input, uniforms, env) => {
+        buildNode: (input, _uniforms, env) => {
           stage1SampleAt = env?.sampleAt;
           return input;
         },

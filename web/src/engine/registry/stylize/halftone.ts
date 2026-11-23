@@ -54,7 +54,7 @@ export const halftoneEffect: EffectDefinition = {
     },
   },
   buildNode: (inputNode, uniforms) => {
-    const frequency = toNode(uniforms.frequency, 30.0);
+    const frequency = toNode(uniforms.frequency, 30.0).max(1.0);
     const angle = toNode(uniforms.angle, 45.0);
     const dotRadius = toNode(uniforms.dotRadius, 1.0);
 

@@ -47,13 +47,14 @@ export const crosshatchEffect: EffectDefinition = {
     },
   },
   buildNode: (inputNode, uniforms, env) => {
-    const spacing = toNode(uniforms.spacing, 6.0);
+    const spacing = toNode(uniforms.spacing, 6.0).max(1.0);
     const density = toNode(uniforms.density, 0.2);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
-      const pixelCoord = st.mul(resolution);
+      const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
+      const pixelCoord = st.mul(safeRes);
       const baseCol = inputNode;
       const lum = rec601Luminance(baseCol.rgb);
 
