@@ -25,6 +25,7 @@ export const edgeDetectEffect: EffectDefinition = {
   label: 'Edge Detection',
   category: 'stylize',
   requiresPass: false,
+  requiresSpatialSampling: true,
   costWeight: 2,
   parameters: {
     sensitivity: {
@@ -52,32 +53,56 @@ export const edgeDetectEffect: EffectDefinition = {
     return Fn(() => {
       const st = uv();
       const baseCol = inputNode;
-      const baseLum = rec601Luminance(baseCol.rgb);
 
-      if (typeof env?.sampleAt === 'function') {
-        const dX = vec2(thickness.div(resolution.x), 0.0);
-        const dY = vec2(0.0, thickness.div(resolution.y));
+      const sampleFn = (coord: any) => {
+        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
+        if (typeof inputNode === 'function') return inputNode(coord);
+        return inputNode;
+      };
 
-        const rightCol = env.sampleAt(st.add(dX));
-        const leftCol = env.sampleAt(st.sub(dX));
-        const upCol = env.sampleAt(st.add(dY));
-        const downCol = env.sampleAt(st.sub(dY));
+      const resX = resolution.x.max(1.0);
+      const resY = resolution.y.max(1.0);
+      const dx = thickness.div(resX);
+      const dy = thickness.div(resY);
 
-        const rightLum = rec601Luminance(rightCol.rgb);
-        const leftLum = rec601Luminance(leftCol.rgb);
-        const upLum = rec601Luminance(upCol.rgb);
-        const downLum = rec601Luminance(downCol.rgb);
+      // 8 surrounding taps clamped to [0.0, 1.0] (T-261123-02)
+      const uvTL = st.add(vec2(dx.negate(), dy)).clamp(0.0, 1.0);
+      const uvT  = st.add(vec2(float(0.0), dy)).clamp(0.0, 1.0);
+      const uvTR = st.add(vec2(dx, dy)).clamp(0.0, 1.0);
+      const uvL  = st.add(vec2(dx.negate(), float(0.0))).clamp(0.0, 1.0);
+      const uvR  = st.add(vec2(dx, float(0.0))).clamp(0.0, 1.0);
+      const uvBL = st.add(vec2(dx.negate(), dy.negate())).clamp(0.0, 1.0);
+      const uvB  = st.add(vec2(float(0.0), dy.negate())).clamp(0.0, 1.0);
+      const uvBR = st.add(vec2(dx, dy.negate())).clamp(0.0, 1.0);
 
-        const gradX = rightLum.sub(leftLum);
-        const gradY = upLum.sub(downLum);
-        const mag = gradX.mul(gradX).add(gradY.mul(gradY)).sqrt().mul(sensitivity).clamp(0.0, 1.0);
+      const tlCol = sampleFn(uvTL);
+      const tCol  = sampleFn(uvT);
+      const trCol = sampleFn(uvTR);
+      const lCol  = sampleFn(uvL);
+      const rCol  = sampleFn(uvR);
+      const blCol = sampleFn(uvBL);
+      const bCol  = sampleFn(uvB);
+      const brCol = sampleFn(uvBR);
 
-        return vec4(vec3(mag), baseCol.a ?? float(1.0));
-      }
+      const tlLum = rec601Luminance(tlCol.rgb);
+      const tLum  = rec601Luminance(tCol.rgb);
+      const trLum = rec601Luminance(trCol.rgb);
+      const lLum  = rec601Luminance(lCol.rgb);
+      const rLum  = rec601Luminance(rCol.rgb);
+      const blLum = rec601Luminance(blCol.rgb);
+      const bLum  = rec601Luminance(bCol.rgb);
+      const brLum = rec601Luminance(brCol.rgb);
 
-      // Pointwise derivative approximation fallback
-      const edge = baseLum.mul(sensitivity).fract();
-      return vec4(vec3(edge), baseCol.a ?? float(1.0));
+      // Sobel horizontal gradient: gx = (tr + r*2.0 + br) - (tl + l*2.0 + bl)
+      const gx = trLum.add(rLum.mul(2.0)).add(brLum).sub(tlLum.add(lLum.mul(2.0)).add(blLum));
+
+      // Sobel vertical gradient: gy = (bl + b*2.0 + br) - (tl + t*2.0 + tr)
+      const gy = blLum.add(bLum.mul(2.0)).add(brLum).sub(tlLum.add(tLum.mul(2.0)).add(trLum));
+
+      // Gradient magnitude: sqrt(gx*gx + gy*gy) * sensitivity, clamped to [0.0, 1.0]
+      const mag = gx.mul(gx).add(gy.mul(gy)).sqrt().mul(sensitivity).clamp(0.0, 1.0);
+
+      return vec4(vec3(mag), baseCol.a ?? float(1.0));
     })();
   },
 };

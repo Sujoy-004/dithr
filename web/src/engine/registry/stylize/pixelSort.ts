@@ -27,6 +27,7 @@ export const pixelSortEffect: EffectDefinition = {
   label: 'Pixel Sort',
   category: 'stylize',
   requiresPass: false,
+  requiresSpatialSampling: true,
   costWeight: 2,
   parameters: {
     threshold: {
@@ -54,7 +55,7 @@ export const pixelSortEffect: EffectDefinition = {
   },
   buildNode: (inputNode, uniforms, env) => {
     const threshold = toNode(uniforms.threshold, 0.5);
-    const sortSpan = toNode(uniforms.sortSpan, 20.0);
+    const sortSpan = toNode(uniforms.sortSpan, 20.0).max(2.0);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
     const time = env?.time ?? uniforms.time ?? float(0.0);
     const seed = env?.seed ?? uniforms.seed ?? float(12.9898);
@@ -63,7 +64,8 @@ export const pixelSortEffect: EffectDefinition = {
 
     return Fn(() => {
       const st = uv();
-      const px = st.mul(resolution);
+      const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
+      const px = st.mul(safeRes);
 
       const sampleFn = (coord: any) => {
         if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
@@ -86,10 +88,11 @@ export const pixelSortEffect: EffectDefinition = {
       let bestCol = baseCol;
       let bestLum = baseLum;
 
-      for (let i = 1; i <= 6; i++) {
-        const stepOffset = effSpan.mul(float(i / 6.0));
+      // 8 directional search taps along scanline
+      for (let i = 1; i <= 8; i++) {
+        const stepOffset = effSpan.mul(float(i / 8.0));
         const samplePx = px.sub(dir.mul(stepOffset));
-        const sampleUV = samplePx.div(resolution).clamp(0.0, 1.0);
+        const sampleUV = samplePx.div(safeRes).clamp(0.0, 1.0);
         const sCol = sampleFn(sampleUV);
         const sLum = rec601Luminance(sCol.rgb);
 
