@@ -18,6 +18,7 @@ export default function ExportDrawer() {
   const mediaType = useStudioStore((s) => s.mediaType);
   const mediaUrl = useStudioStore((s) => s.mediaUrl);
   const mediaName = useStudioStore((s) => s.mediaName);
+  const dimensions = useStudioStore((s) => s.dimensions);
   const ascii = useStudioStore((s) => s.ascii);
 
   const [activeTab, setActiveTab] = useState<'image' | 'text' | 'vector' | 'clip'>('image');
@@ -85,7 +86,14 @@ export default function ExportDrawer() {
     setProgressMsg(`Exporting ${format.toUpperCase()}...`);
     try {
       const filename = getBaseFilename(format, 'render');
-      await exportRasterImage(canvas, format, 0.95, filename);
+      await exportRasterImage(
+        canvas,
+        format,
+        0.95,
+        filename,
+        dimensions?.width,
+        dimensions?.height
+      );
       setToastMsg(`Downloaded ${filename}!`);
     } catch (err) {
       console.error(err);

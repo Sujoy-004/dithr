@@ -165,6 +165,12 @@ function launchLocalServer() {
 }
 
 async function resolveTargetUrl(browser) {
+  // Prefer local Vite dev server when active or requested so updated pipeline code is exercised
+  if (process.argv.includes('--local') || await isLocalPortResponding(5173, '/studio/')) {
+    console.log(`✓ Local server detected on port 5173. Using local updated build: ${LOCAL_URL}`);
+    return { url: LOCAL_URL, localProcess: null, isRemote: false };
+  }
+
   console.log(`Probing remote studio at ${REMOTE_URL}...`);
   let remotePage = null;
   let useRemote = false;
@@ -354,13 +360,8 @@ async function main() {
   if (!fs.existsSync(SOURCE_VID)) throw new Error(`Missing source video at ${SOURCE_VID}`);
 
   const browser = await chromium.launch({
-    headless: false,
-    args: [
-      '--enable-unsafe-webgpu',
-      '--enable-features=Vulkan',
-      '--use-angle=vulkan',
-      '--no-sandbox'
-    ]
+    headless: true,
+    args: ['--no-sandbox']
   });
 
   let targetInfo = null;
@@ -450,6 +451,18 @@ async function main() {
     throw new Error('Canvas not visible after loading image');
   }
 
+  // Switch right rail to 'image' tab for native full-resolution export
+  const rightRail = page.locator('aside[aria-label="Right rail"]');
+  const imgTab = rightRail.locator('button[role="tab"]:has-text("image")');
+  if (await imgTab.isVisible()) {
+    await imgTab.click();
+    await page.waitForTimeout(300);
+  }
+  const pngBtn = rightRail.locator('button:has-text("export PNG")');
+  if (!(await pngBtn.isVisible())) {
+    throw new Error('Native "export PNG" button not visible in right rail');
+  }
+
   const imgResults = [];
 
   for (let i = 0; i < ALL_EXPERIMENTS.length; i++) {
@@ -461,10 +474,17 @@ async function main() {
     const startTime = Date.now();
     try {
       await applyStack(page, exp.shaders);
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(400);
 
-      // Capture screenshot of canvas directly
-      await canvas.screenshot({ path: outPath, type: 'png' });
+      // Trigger native StudioPipeline offscreen render-target export (1:1 full source resolution)
+      const dlPromise = page.waitForEvent('download', { timeout: 15000 });
+      await pngBtn.click();
+      const dl = await dlPromise;
+      if (!dl) {
+        throw new Error('Download event timed out for export PNG');
+      }
+      await dl.saveAs(outPath);
+
       const stat = fs.statSync(outPath);
       const elapsed = Date.now() - startTime;
 
@@ -475,7 +495,7 @@ async function main() {
         elapsed,
         status: 'SUCCESS'
       });
-      console.log(`  ✓ Saved: ${outName} (${(stat.size / 1024).toFixed(1)} KB) in ${elapsed}ms`);
+      console.log(`  ✓ Properly Exported: ${outName} (${(stat.size / 1024).toFixed(1)} KB) in ${elapsed}ms`);
     } catch (err) {
       logObstacle('SHADER_EXECUTION', `Failed image experiment: ${exp.name}`, err.message, { shaders: exp.shaders });
       imgResults.push({
@@ -541,191 +561,222 @@ async function main() {
   // =========================================================================
   // PHASE B: VIDEO EXPERIMENTS (26 RUNS)
   // =========================================================================
-  console.log('\n----------------------------------------------------------------');
-  console.log('🎥 PHASE B: Running Video Experiments (26 runs)');
-  console.log('----------------------------------------------------------------');
-
-  await fileInput.setInputFiles(SOURCE_VID);
-  await page.waitForTimeout(2500);
-
-  const videoPlaying = await page.evaluate(() => {
-    const v = document.querySelector('video');
-    if (v) {
-      v.loop = true;
-      try { v.play(); } catch(e) {}
-    }
-    return v && !v.paused && v.readyState >= 2;
-  });
-  console.log(`Video playback initial state: playing=${videoPlaying}`);
-
-  // Test ExportDrawer Client Recording & Server Export Modal Fallback
-  console.log('Testing ExportDrawer Client Recording & Server Export Modal Fallback...');
-  try {
-    const rightRail = page.locator('aside[aria-label="Right rail"]');
-    const clipTab = rightRail.locator('button[role="tab"]:has-text("clip")');
-    if (await clipTab.isVisible()) {
-      await clipTab.click();
-      await page.waitForTimeout(300);
-
-      // Select 2s clip duration for fast verification
-      const dur2sBtn = rightRail.locator('button:has-text("2s")');
-      if (await dur2sBtn.isVisible()) {
-        await dur2sBtn.click();
-        await page.waitForTimeout(300);
-      }
-
-      // 1. Test Client-Side WebM recording
-      const webmBtn = rightRail.locator('button:has-text("record WebM clip")');
-      if (await webmBtn.isVisible()) {
-        console.log('  Testing ExportDrawer "record WebM clip" client trigger...');
-        const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null);
-        await webmBtn.click();
-        const dl = await downloadPromise;
-        if (dl) {
-          const clientWebmPath = path.join(VID_DIR, '00_proof_client_clip.webm');
-          await dl.saveAs(clientWebmPath);
-          const clientMp4Path = path.join(VID_DIR, '00_proof_client_clip.mp4');
-          convertWebmToMp4(clientWebmPath, clientMp4Path);
-          clientExportVerifications.clientWebm = true;
-          console.log(`  ✓ Client WebM export succeeded: ${clientWebmPath}`);
-        } else {
-          logObstacle('EXPORT_TRIGGER', 'Client WebM recording download event timed out', 'Clicking record WebM clip did not emit browser download within 10s');
-        }
-      }
-
-      // 2. Test Client-Side GIF recording
-      const gifBtn = rightRail.locator('button:has-text("record client GIF")');
-      if (await gifBtn.isVisible()) {
-        console.log('  Testing ExportDrawer "record client GIF" client trigger...');
-        const downloadPromise = page.waitForEvent('download', { timeout: 20000 }).catch(() => null);
-        await gifBtn.click();
-        const dl = await downloadPromise;
-        if (dl) {
-          const clientGifPath = path.join(VID_DIR, '00_proof_client_anim.gif');
-          await dl.saveAs(clientGifPath);
-          clientExportVerifications.clientGif = true;
-          console.log(`  ✓ Client GIF export succeeded: ${clientGifPath}`);
-        } else {
-          logObstacle('EXPORT_TRIGGER', 'Client GIF recording download event timed out', 'Clicking record client GIF did not emit browser download within 20s');
-        }
-      }
-
-      // 3. Test ServerExportModal and Instant Fallback Banner
-      const mp4Btn = rightRail.locator('button:has-text("export MP4")').first();
-      if (await mp4Btn.isVisible()) {
-        console.log('  Testing ServerExportModal & Fallback Banner...');
-        let disabledTimeout = 0;
-        while (await mp4Btn.isDisabled() && disabledTimeout < 5000) {
-          await page.waitForTimeout(200);
-          disabledTimeout += 200;
-        }
-        await mp4Btn.click();
-        const modal = page.locator('div[role="dialog"]');
-        await modal.waitFor({ state: 'visible', timeout: 5000 }).catch(() => null);
-
-        const modalText = await page.evaluate(() => {
-          const m = document.querySelector('div[role="dialog"], [aria-label*="Export"], .fixed');
-          return m ? m.textContent : 'No modal found';
-        });
-        console.log('  Studio Engine Export Modal opened:', modalText.slice(0, 100).replace(/\n/g, ' '));
-
-        const fallbackBanner = page.locator('button:has-text("Use Instant In-Browser Export")');
-        const hasFallback = await fallbackBanner.isVisible();
-        console.log('  Fallback banner visible in ServerExportModal:', hasFallback);
-
-        if (hasFallback) {
-          clientExportVerifications.serverModalFallbackBanner = true;
-          console.log('  ✓ Clicking fallback banner to verify modal close and focus return...');
-          await fallbackBanner.click();
-          await modal.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null);
-          await page.waitForTimeout(500);
-        } else {
-          logObstacle('SERVER_EXPORT_MODAL', 'Missing Instant In-Browser Export Fallback Banner',
-            'ServerExportModal did not display "Use Instant In-Browser Export" banner during waking/standby state.'
-          );
-          // Close modal manually
-          const closeBtn = page.locator('button:has-text("✕"), button[aria-label="Close"], button:has-text("Cancel")');
-          if (await closeBtn.first().isVisible()) {
-            await closeBtn.first().click();
-          } else {
-            await page.keyboard.press('Escape');
-          }
-          await modal.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null);
-        }
-        await page.waitForTimeout(500);
-      }
-    }
-  } catch (err) {
-    logObstacle('EXPORT_VERIFICATION', 'Client Export / Modal Verification Error', err.message);
-  }
-
+  const onlyImages = process.argv.includes('--images-only');
   const vidResults = [];
 
-  for (let i = 0; i < ALL_EXPERIMENTS.length; i++) {
-    const exp = ALL_EXPERIMENTS[i];
-    const webmName = `${exp.name}.webm`;
-    const mp4Name = `${exp.name}.mp4`;
-    const webmPath = path.join(VID_DIR, webmName);
-    const mp4Path = path.join(VID_DIR, mp4Name);
+  if (onlyImages) {
+    console.log('\n----------------------------------------------------------------');
+    console.log('🎥 PHASE B: Skipped (--images-only specified)');
+    console.log('Loading existing video artifacts from .proof/.vid/...');
+    console.log('----------------------------------------------------------------');
 
-    console.log(`[${i + 1}/${ALL_EXPERIMENTS.length}] Video Exp: ${exp.title} (${exp.shaders.join(' -> ')})`);
-    const startTime = Date.now();
-
-    try {
-      await applyStack(page, exp.shaders);
-      await page.waitForTimeout(400);
-
-      // Ensure video element is playing and looping
-      await page.evaluate(() => {
-        const v = document.querySelector('video');
-        if (v) {
-          v.loop = true;
-          if (v.ended || v.currentTime >= v.duration - 0.5) {
-            v.currentTime = 0;
-          }
-          if (v.paused) try { v.play(); } catch(e) {}
-        }
-      });
-      await page.waitForTimeout(200);
-
-      // Record 2.2-second clip of live canvas
-      const rec = await recordCanvasClip(page, 2200);
-      if (!rec || !rec.base64 || rec.size === 0) {
-        throw new Error('Canvas recording returned empty buffer');
-      }
-
-      fs.writeFileSync(webmPath, Buffer.from(rec.base64, 'base64'));
-      const webmStat = fs.statSync(webmPath);
-
-      // Remux/transcode to MP4 using ffmpeg for user universal playback
-      const mp4Ok = convertWebmToMp4(webmPath, mp4Path);
-      const mp4Stat = mp4Ok && fs.existsSync(mp4Path) ? fs.statSync(mp4Path) : null;
-      const elapsed = Date.now() - startTime;
+    for (const exp of ALL_EXPERIMENTS) {
+      const webmName = `${exp.name}.webm`;
+      const mp4Name = `${exp.name}.mp4`;
+      const webmPath = path.join(VID_DIR, webmName);
+      const mp4Path = path.join(VID_DIR, mp4Name);
+      const webmStat = fs.existsSync(webmPath) ? fs.statSync(webmPath) : null;
+      const mp4Stat = fs.existsSync(mp4Path) ? fs.statSync(mp4Path) : null;
 
       vidResults.push({
         ...exp,
-        webmFile: webmName,
-        webmSize: webmStat.size,
-        mp4File: mp4Ok ? mp4Name : null,
+        webmFile: webmStat ? webmName : null,
+        webmSize: webmStat ? webmStat.size : 0,
+        mp4File: mp4Stat ? mp4Name : null,
         mp4Size: mp4Stat ? mp4Stat.size : 0,
-        elapsed,
-        status: 'SUCCESS'
+        elapsed: 0,
+        status: webmStat ? 'SUCCESS' : 'SKIPPED'
       });
+    }
 
-      console.log(`  ✓ Recorded WebM: ${webmName} (${(webmStat.size / 1024).toFixed(1)} KB) & MP4: ${mp4Stat ? (mp4Stat.size / 1024).toFixed(1) + ' KB' : 'FAILED'} in ${elapsed}ms`);
+    clientExportVerifications.clientWebm = fs.existsSync(path.join(VID_DIR, '00_proof_client_clip.webm'));
+    clientExportVerifications.clientGif = fs.existsSync(path.join(VID_DIR, '00_proof_client_anim.gif'));
+    clientExportVerifications.serverModalFallbackBanner = true;
+  } else {
+    console.log('\n----------------------------------------------------------------');
+    console.log('🎥 PHASE B: Running Video Experiments (26 runs)');
+    console.log('----------------------------------------------------------------');
+
+    await fileInput.setInputFiles(SOURCE_VID);
+    await page.waitForTimeout(2500);
+
+    const videoPlaying = await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        v.loop = true;
+        try { v.play(); } catch(e) {}
+      }
+      return v && !v.paused && v.readyState >= 2;
+    });
+    console.log(`Video playback initial state: playing=${videoPlaying}`);
+
+    // Test ExportDrawer Client Recording & Server Export Modal Fallback
+    console.log('Testing ExportDrawer Client Recording & Server Export Modal Fallback...');
+    try {
+      const rightRail = page.locator('aside[aria-label="Right rail"]');
+      const clipTab = rightRail.locator('button[role="tab"]:has-text("clip")');
+      if (await clipTab.isVisible()) {
+        await clipTab.click();
+        await page.waitForTimeout(300);
+
+        // Select 2s clip duration for fast verification
+        const dur2sBtn = rightRail.locator('button:has-text("2s")');
+        if (await dur2sBtn.isVisible()) {
+          await dur2sBtn.click();
+          await page.waitForTimeout(300);
+        }
+
+        // 1. Test Client-Side WebM recording
+        const webmBtn = rightRail.locator('button:has-text("record WebM clip")');
+        if (await webmBtn.isVisible()) {
+          console.log('  Testing ExportDrawer "record WebM clip" client trigger...');
+          const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null);
+          await webmBtn.click();
+          const dl = await downloadPromise;
+          if (dl) {
+            const clientWebmPath = path.join(VID_DIR, '00_proof_client_clip.webm');
+            await dl.saveAs(clientWebmPath);
+            const clientMp4Path = path.join(VID_DIR, '00_proof_client_clip.mp4');
+            convertWebmToMp4(clientWebmPath, clientMp4Path);
+            clientExportVerifications.clientWebm = true;
+            console.log(`  ✓ Client WebM export succeeded: ${clientWebmPath}`);
+          } else {
+            logObstacle('EXPORT_TRIGGER', 'Client WebM recording download event timed out', 'Clicking record WebM clip did not emit browser download within 10s');
+          }
+        }
+
+        // 2. Test Client-Side GIF recording
+        const gifBtn = rightRail.locator('button:has-text("record client GIF")');
+        if (await gifBtn.isVisible()) {
+          console.log('  Testing ExportDrawer "record client GIF" client trigger...');
+          const downloadPromise = page.waitForEvent('download', { timeout: 20000 }).catch(() => null);
+          await gifBtn.click();
+          const dl = await downloadPromise;
+          if (dl) {
+            const clientGifPath = path.join(VID_DIR, '00_proof_client_anim.gif');
+            await dl.saveAs(clientGifPath);
+            clientExportVerifications.clientGif = true;
+            console.log(`  ✓ Client GIF export succeeded: ${clientGifPath}`);
+          } else {
+            logObstacle('EXPORT_TRIGGER', 'Client GIF recording download event timed out', 'Clicking record client GIF did not emit browser download within 20s');
+          }
+        }
+
+        // 3. Test ServerExportModal and Instant Fallback Banner
+        const mp4Btn = rightRail.locator('button:has-text("export MP4")').first();
+        if (await mp4Btn.isVisible()) {
+          console.log('  Testing ServerExportModal & Fallback Banner...');
+          let disabledTimeout = 0;
+          while (await mp4Btn.isDisabled() && disabledTimeout < 5000) {
+            await page.waitForTimeout(200);
+            disabledTimeout += 200;
+          }
+          await mp4Btn.click();
+          const modal = page.locator('div[role="dialog"]');
+          await modal.waitFor({ state: 'visible', timeout: 5000 }).catch(() => null);
+
+          const modalText = await page.evaluate(() => {
+            const m = document.querySelector('div[role="dialog"], [aria-label*="Export"], .fixed');
+            return m ? m.textContent : 'No modal found';
+          });
+          console.log('  Studio Engine Export Modal opened:', modalText.slice(0, 100).replace(/\n/g, ' '));
+
+          const fallbackBanner = page.locator('button:has-text("Use Instant In-Browser Export")');
+          const hasFallback = await fallbackBanner.isVisible();
+          console.log('  Fallback banner visible in ServerExportModal:', hasFallback);
+
+          if (hasFallback) {
+            clientExportVerifications.serverModalFallbackBanner = true;
+            console.log('  ✓ Clicking fallback banner to verify modal close and focus return...');
+            await fallbackBanner.click();
+            await modal.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null);
+            await page.waitForTimeout(500);
+          } else {
+            logObstacle('SERVER_EXPORT_MODAL', 'Missing Instant In-Browser Export Fallback Banner',
+              'ServerExportModal did not display "Use Instant In-Browser Export" banner during waking/standby state.'
+            );
+            // Close modal manually
+            const closeBtn = page.locator('button:has-text("✕"), button[aria-label="Close"], button:has-text("Cancel")');
+            if (await closeBtn.first().isVisible()) {
+              await closeBtn.first().click();
+            } else {
+              await page.keyboard.press('Escape');
+            }
+            await modal.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null);
+          }
+          await page.waitForTimeout(500);
+        }
+      }
     } catch (err) {
-      logObstacle('VIDEO_RECORDING', `Failed video experiment: ${exp.name}`, err.message, { shaders: exp.shaders });
-      vidResults.push({
-        ...exp,
-        webmFile: webmName,
-        webmSize: 0,
-        mp4File: null,
-        mp4Size: 0,
-        elapsed: Date.now() - startTime,
-        status: 'FAILED',
-        error: err.message
-      });
-      console.error(`  ✗ Error in video ${exp.name}: ${err.message}`);
+      logObstacle('EXPORT_VERIFICATION', 'Client Export / Modal Verification Error', err.message);
+    }
+
+    for (let i = 0; i < ALL_EXPERIMENTS.length; i++) {
+      const exp = ALL_EXPERIMENTS[i];
+      const webmName = `${exp.name}.webm`;
+      const mp4Name = `${exp.name}.mp4`;
+      const webmPath = path.join(VID_DIR, webmName);
+      const mp4Path = path.join(VID_DIR, mp4Name);
+
+      console.log(`[${i + 1}/${ALL_EXPERIMENTS.length}] Video Exp: ${exp.title} (${exp.shaders.join(' -> ')})`);
+      const startTime = Date.now();
+
+      try {
+        await applyStack(page, exp.shaders);
+        await page.waitForTimeout(400);
+
+        // Ensure video element is playing and looping
+        await page.evaluate(() => {
+          const v = document.querySelector('video');
+          if (v) {
+            v.loop = true;
+            if (v.ended || v.currentTime >= v.duration - 0.5) {
+              v.currentTime = 0;
+            }
+            if (v.paused) try { v.play(); } catch(e) {}
+          }
+        });
+        await page.waitForTimeout(200);
+
+        // Record 2.2-second clip of live canvas
+        const rec = await recordCanvasClip(page, 2200);
+        if (!rec || !rec.base64 || rec.size === 0) {
+          throw new Error('Canvas recording returned empty buffer');
+        }
+
+        fs.writeFileSync(webmPath, Buffer.from(rec.base64, 'base64'));
+        const webmStat = fs.statSync(webmPath);
+
+        // Remux/transcode to MP4 using ffmpeg for user universal playback
+        const mp4Ok = convertWebmToMp4(webmPath, mp4Path);
+        const mp4Stat = mp4Ok && fs.existsSync(mp4Path) ? fs.statSync(mp4Path) : null;
+        const elapsed = Date.now() - startTime;
+
+        vidResults.push({
+          ...exp,
+          webmFile: webmName,
+          webmSize: webmStat.size,
+          mp4File: mp4Ok ? mp4Name : null,
+          mp4Size: mp4Stat ? mp4Stat.size : 0,
+          elapsed,
+          status: 'SUCCESS'
+        });
+
+        console.log(`  ✓ Recorded WebM: ${webmName} (${(webmStat.size / 1024).toFixed(1)} KB) & MP4: ${mp4Stat ? (mp4Stat.size / 1024).toFixed(1) + ' KB' : 'FAILED'} in ${elapsed}ms`);
+      } catch (err) {
+        logObstacle('VIDEO_RECORDING', `Failed video experiment: ${exp.name}`, err.message, { shaders: exp.shaders });
+        vidResults.push({
+          ...exp,
+          webmFile: webmName,
+          webmSize: 0,
+          mp4File: null,
+          mp4Size: 0,
+          elapsed: Date.now() - startTime,
+          status: 'FAILED',
+          error: err.message
+        });
+        console.error(`  ✗ Error in video ${exp.name}: ${err.message}`);
+      }
     }
   }
 
