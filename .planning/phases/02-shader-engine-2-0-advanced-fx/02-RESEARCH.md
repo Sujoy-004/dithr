@@ -554,15 +554,15 @@ export const linearTosRGB = (colorNode: any) =>
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Draco-Compressed GLB Uploads**
+   - *Resolution:* RESOLVED: Support standard GLB/glTF out-of-the-box in Phase 2; detect Draco extension and show a clear notice: "Draco-compressed GLB not supported in Phase 2; please upload standard GLB."
    - *What we know:* Standard GLB files load natively via `GLTFLoader`. Draco-compressed models require initializing `DRACOLoader` and loading ~1MB of WASM worker files.
-   - *Recommendation:* Support standard GLB/glTF out-of-the-box in Phase 2; detect Draco extension and show a clear notice: "Draco-compressed GLB not supported in Phase 2; please upload standard GLB."
 
 2. **On-Canvas Mask Handle Positioning during HUD Pan/Zoom**
+   - *Resolution:* RESOLVED: Place the `MaskHandles` overlay inside the same CSS transformed container (`scale(zoom) translate(pan.x, pan.y)`) as the canvas, ensuring pixel-perfect handle alignment.
    - *What we know:* CenterStage has HUD pan and zoom transforms. On-canvas overlay handles must transform in sync with the canvas display.
-   - *Recommendation:* Place the `MaskHandles` overlay inside the same CSS transformed container (`scale(zoom) translate(pan.x, pan.y)`) as the canvas, ensuring pixel-perfect handle alignment.
 
 ---
 
