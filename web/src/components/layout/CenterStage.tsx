@@ -73,6 +73,13 @@ export default function CenterStage() {
     pipelineRef.current = pipeline;
     registerPipeline(pipeline);
 
+    // Parse deterministic test params: ?testMode=true&freezeTime=1.0&seed=42 (D-27)
+    const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const freezeTimeParam = searchParams?.get('freezeTime') ?? undefined;
+    const seedParam = searchParams?.get('seed') ?? undefined;
+    const frozenTime = freezeTimeParam && !isNaN(parseFloat(freezeTimeParam)) ? parseFloat(freezeTimeParam) : null;
+    const frozenSeed = seedParam && !isNaN(parseFloat(seedParam)) ? parseFloat(seedParam) : null;
+
     const startTime = performance.now();
     let lastFrameTime = startTime;
 
@@ -126,7 +133,8 @@ export default function CenterStage() {
           }
         }
 
-        pipeline.render((time - startTime) * 0.001);
+        const renderTime = frozenTime !== null ? frozenTime : (time - startTime) * 0.001;
+        pipeline.render(renderTime);
       }
       animIdRef.current = requestAnimationFrame(loop);
     };
@@ -134,6 +142,9 @@ export default function CenterStage() {
     pipeline
       .init()
       .then(() => {
+        if (frozenSeed !== null) {
+          pipeline.setSeed(frozenSeed);
+        }
         pipeline.resize(canvas.clientWidth || 800, canvas.clientHeight || 600);
         if (!isPausedRef.current) {
           animIdRef.current = requestAnimationFrame(loop);

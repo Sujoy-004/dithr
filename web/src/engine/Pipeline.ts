@@ -190,6 +190,24 @@ export class StudioPipeline {
     }
   }
 
+  /**
+   * Sets the global seed uniform value for deterministic snapshot testing (D-27).
+   */
+  setSeed(seed: number): void {
+    if (this.seedUniform && typeof this.seedUniform === 'object' && 'value' in this.seedUniform) {
+      this.seedUniform.value = seed;
+    }
+  }
+
+  /**
+   * Sets the global time uniform value for frozen/deterministic playback (D-27).
+   */
+  setTime(time: number): void {
+    if (this.timeUniform && typeof this.timeUniform === 'object' && 'value' in this.timeUniform) {
+      this.timeUniform.value = time;
+    }
+  }
+
   setSourceTexture(tex: THREE.Texture): void {
     this.sourceTexture = tex;
     tex.minFilter = THREE.LinearFilter;

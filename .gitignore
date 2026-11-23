@@ -24,6 +24,8 @@ Thumbs.db
 # Local / personal tooling
 .wrangler/
 .playwright-mcp/
+test-results/
+playwright-report/
 AGENTS.md
 GEMINI.md
 .env
