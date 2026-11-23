@@ -537,7 +537,9 @@ export default function LeftRail() {
               >
                 <button
                   type="button"
-                  title={`Set single effect: ${label} (fast path)`}
+                  title={`Set single effect: ${label} (${mode})`}
+                  data-effect-id={mode}
+                  data-testid={`set-effect-${mode}`}
                   onClick={() => setSingleEffectFastPath(mode)}
                   className="flex h-full flex-1 items-center gap-1.5 px-2 text-control text-left truncate"
                 >
@@ -549,8 +551,10 @@ export default function LeftRail() {
                 </button>
                 <button
                   type="button"
-                  title={`Add ${label} to stack`}
+                  title={`Add ${label} (${mode}) to stack`}
                   aria-label={`Add ${label} to stack`}
+                  data-effect-id={mode}
+                  data-testid={`add-effect-${mode}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     addEffect(mode);

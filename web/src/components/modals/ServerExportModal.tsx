@@ -9,6 +9,7 @@ export interface ServerExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultFormat?: 'mp4' | 'gif';
+  onFallbackToClient?: () => void;
 }
 
 type EngineStatus = 'standby' | 'waking' | 'ready';
@@ -28,6 +29,7 @@ export default function ServerExportModal({
   isOpen,
   onClose,
   defaultFormat = 'mp4',
+  onFallbackToClient,
 }: ServerExportModalProps) {
   const [format, setFormat] = useState<'mp4' | 'gif'>(defaultFormat);
   const [resolution, setResolution] = useState<'1080p' | '720p' | '480p'>('1080p');
@@ -266,6 +268,24 @@ export default function ServerExportModal({
 
         {/* Modal Body */}
         <div className="flex flex-col gap-4 p-4 text-xs">
+          {/* In-browser instant recording fallback banner */}
+          {engineStatus !== 'ready' && phase === 'config' && onFallbackToClient && (
+            <div className="flex items-center justify-between bg-active/80 border border-hairline p-2 text-[11px]">
+              <span className="text-dim">
+                {engineStatus === 'waking'
+                  ? '⚡ Engine warming up (~30s)... Prefer instant download?'
+                  : '💡 Cloud engine on standby. For zero-wait recording:'}
+              </span>
+              <button
+                type="button"
+                onClick={onFallbackToClient}
+                className="ml-2 font-medium text-highlight hover:underline border border-border px-1.5 py-0.5 bg-raised"
+              >
+                Use Instant In-Browser Export →
+              </button>
+            </div>
+          )}
+
           {phase === 'config' && (
             <>
               {/* Format selection */}
@@ -496,7 +516,16 @@ export default function ServerExportModal({
                   </p>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 justify-center">
+                {onFallbackToClient && (
+                  <button
+                    type="button"
+                    onClick={onFallbackToClient}
+                    className="h-7 border border-highlight bg-active px-3 text-highlight font-medium hover:bg-highlight hover:text-black transition-colors"
+                  >
+                    Switch to In-Browser Export (WebM/GIF)
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setPhase('config')}
