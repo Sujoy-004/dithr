@@ -19,7 +19,7 @@
 ### v2.0 Professional Studio
 
 - [x] **Phase 1: Reliability & Performance Foundation** (5/5 plans) — completed 2026-11-22
-- [ ] **Phase 2: Shader Engine 2.0 & Advanced FX** - Composable TSL multi-effect pass pipeline, corrected Rec. 601/709 color math, Web Audio FFT audio reactivity, advanced CRT/VHS analog emulation, and 3D ASCII point cloud rendering.
+- [x] **Phase 2: Shader Engine 2.0 & Advanced FX** - Composable TSL multi-effect pass pipeline, corrected Rec. 601/709 color math, Web Audio FFT audio reactivity, advanced CRT/VHS analog emulation, and 3D ASCII point cloud rendering. (completed 2026-11-23)
 - [ ] **Phase 3: Creative Workspace & Export Studio** - Non-destructive Undo/Redo history stack, session crash recovery, multi-layer composition, keyframe parameter timeline, before/after split view, and preview-faithful export queue.
 - [ ] **Phase 4: Persistence, Community & Distribution** - Named projects in IndexedDB (`idb`) with autosave, compressed URL hash preset sharing (`lz-string`), optional Neon PostgreSQL cloud sync, and embeddable web component package.
 
@@ -60,7 +60,7 @@ Plans:
   4. Analog CRT and VHS emulation renders phosphor decay, scanline curvature, tape tracking jitter, and bloom.
   5. Live microphone input or video audio frequency bands (bass, mid, treble) extracted via Web Audio `AnalyserNode` dynamically modulate shader parameters in real time at 60 FPS.
   6. User can load and render 3D meshes into real-time ASCII point clouds and rasterized depth fields.
-**Plans:** 6/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1**
@@ -123,7 +123,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Reliability & Performance Foundation | 5/5 | Planning complete | - |
-| 2. Shader Engine 2.0 & Advanced FX | 6/6 | Planning complete | - |
+| 2. Shader Engine 2.0 & Advanced FX | 6/6 | Complete    | 2026-11-23 |
 | 3. Creative Workspace & Export Studio | 0/0 | Not started | - |
 | 4. Persistence, Community & Distribution | 0/0 | Not started | - |
 
