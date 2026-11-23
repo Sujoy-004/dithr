@@ -37,7 +37,7 @@ export class ServerBusyApiError extends Error {
 // Configurable backend base URL with Render production fallback (uses dev proxy when empty)
 const API_BASE = (
   import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD ? 'https://rgb-ascii-api.onrender.com' : '')
+  (import.meta.env.PROD ? 'https://dithr-api.onrender.com' : '')
 ).replace(/\/+$/, '');
 
 export const exportApi = {

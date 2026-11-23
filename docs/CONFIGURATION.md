@@ -41,7 +41,7 @@ All terminal CLI settings can be configured via environment variables without pa
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `VITE_API_BASE_URL` | Optional | `http://localhost:8000` | Base URL pointing to the FastAPI export backend. |
+| `VITE_API_URL` | Optional | `http://localhost:8000` | Base URL pointing to the FastAPI export backend. |
 | `VITE_TURNSTILE_SITE_KEY` | Optional | `""` | Cloudflare Turnstile public site key for client challenge verification. |
 
 ---

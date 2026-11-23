@@ -72,7 +72,7 @@ Render automatically monitors `GET /api/health`. If the health check returns HTT
 ### Environment Variables
 
 #### Cloudflare Pages (Frontend)
-- `VITE_API_BASE_URL`: Full HTTPS URL of the deployed Render backend (e.g., `https://dithr-api.onrender.com`).
+- `VITE_API_URL`: Full HTTPS URL of the deployed Render backend (e.g., `https://dithr-api.onrender.com`).
 - `VITE_TURNSTILE_SITE_KEY`: Public Cloudflare Turnstile site key.
 
 #### Render (Backend)
