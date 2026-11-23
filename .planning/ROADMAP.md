@@ -63,11 +63,22 @@ Plans:
 **Plans:** 6 plans
 
 Plans:
+**Wave 1**
 - [ ] 02-01-PLAN.md — Color Science, Typed Effect Registry & Tracer Pipeline Slice
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 02-02-PLAN.md — Hybrid Render Graph, PassPool & Engine Pipeline Execution
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 02-03-PLAN.md — LeftRail Effect Stack UI, Reorder & Schema-Driven Inspector
+
+**Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 02-04-PLAN.md — Spatial Masks, RGB Channel Split & Advanced Analog CRT/VHS Emulation
+
+**Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 02-05-PLAN.md — Web Audio Reactivity & Zero-Churn RAF Modulation
+
+**Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 02-06-PLAN.md — 3D ASCII Generator, Mesh Ingestion & Test Harness Verification
 
 ---
