@@ -8,6 +8,11 @@ import {
   compileGraph,
   GraphCompiler,
 } from '../engine/graph/GraphCompiler';
+import {
+  TIER_CONFIGS,
+  evaluateTierBudget,
+} from '../engine/capabilities';
+import { StudioPipeline } from '../engine/Pipeline';
 import { EffectRegistry } from '../engine/registry/index';
 import type { ActiveEffectPass, EffectDefinition } from '../engine/registry/types';
 
@@ -330,6 +335,142 @@ describe('GraphCompiler: Pass Fusion & Topology Hashing (D-03, D-06, D-21, D-22)
       expect(compiled.stageDescriptors[1].inputTextureNode).toBeDefined();
 
       compiled.dispose();
+    });
+  });
+});
+
+describe('Tier Budgeting & StudioPipeline Integration (D-22, D-23, FX-01, T-02-04)', () => {
+  const createPass = (
+    effectId: string,
+    instanceId: string,
+    parameters: Record<string, any> = {},
+    blendMode: any = 'normal',
+    enabled = true
+  ): ActiveEffectPass => ({
+    instanceId,
+    effectId,
+    enabled,
+    intensity: 1.0,
+    blendMode,
+    parameters,
+  });
+
+  describe('Tier Configurations & evaluateTierBudget (D-23)', () => {
+    it('defines maxPassBudget and maxIntermediateTargets matching quality tier limits', () => {
+      expect(TIER_CONFIGS.high.maxPassBudget).toBe(8);
+      expect(TIER_CONFIGS.high.maxIntermediateTargets).toBe(4);
+
+      expect(TIER_CONFIGS.medium.maxPassBudget).toBe(5);
+      expect(TIER_CONFIGS.medium.maxIntermediateTargets).toBe(2);
+
+      expect(TIER_CONFIGS.low.maxPassBudget).toBe(3);
+      expect(TIER_CONFIGS.low.maxIntermediateTargets).toBe(1);
+    });
+
+    it('auto-disables lowest-priority passes on Low tier when 5 passes are submitted', () => {
+      const stack: ActiveEffectPass[] = [
+        createPass('tone', 'pass-1'),
+        createPass('dither', 'pass-2'),
+        createPass('blockify', 'pass-3'),
+        createPass('threshold', 'pass-4'),
+        createPass('dots', 'pass-5'),
+      ];
+
+      const evaluation = evaluateTierBudget(stack, 'low');
+
+      expect(evaluation.exceeded).toBe(true);
+      expect(evaluation.maxBudget).toBe(3);
+
+      // On Low tier (budget 3), passes 1-3 are allowed, passes 4 and 5 are auto-disabled
+      expect(evaluation.disabledPassIds).toEqual(['pass-4', 'pass-5']);
+
+      const enabledPasses = evaluation.allowedStack.filter((p) => p.enabled);
+      expect(enabledPasses).toHaveLength(3);
+      expect(enabledPasses.map((p) => p.instanceId)).toEqual(['pass-1', 'pass-2', 'pass-3']);
+
+      const disabledPasses = evaluation.allowedStack.filter((p) => !p.enabled);
+      expect(disabledPasses).toHaveLength(2);
+      expect(disabledPasses.map((p) => p.instanceId)).toEqual(['pass-4', 'pass-5']);
+    });
+
+    it('allows all 5 passes on High tier without disabling', () => {
+      const stack: ActiveEffectPass[] = [
+        createPass('tone', 'pass-1'),
+        createPass('dither', 'pass-2'),
+        createPass('blockify', 'pass-3'),
+        createPass('threshold', 'pass-4'),
+        createPass('dots', 'pass-5'),
+      ];
+
+      const evaluation = evaluateTierBudget(stack, 'high');
+      expect(evaluation.exceeded).toBe(false);
+      expect(evaluation.disabledPassIds).toHaveLength(0);
+      expect(evaluation.allowedStack.filter((p) => p.enabled)).toHaveLength(5);
+    });
+  });
+
+  describe('StudioPipeline Stack Synchronization & Zero-Recompile Uniforms (D-22)', () => {
+    it('syncs stack, caches compiled pipeline, and updates uniforms in-place without rebuilding', () => {
+      const canvas = document.createElement('canvas');
+      const pipeline = new StudioPipeline({ canvas });
+
+      const stack: ActiveEffectPass[] = [
+        createPass('tone', 'tone-1', { brightness: 1.0, contrast: 1.0 }),
+        createPass('dither', 'dither-1', { colorSteps: 4, spread: 0.5 }),
+      ];
+
+      // Initial sync compiles pipeline
+      pipeline.syncStack(stack, 'high');
+      const initialPipeline = pipeline.getCurrentPipeline();
+      expect(initialPipeline).not.toBeNull();
+      const initialHash = pipeline.getTopologyHash();
+      expect(initialHash).toContain('tone:normal');
+      expect(initialHash).toContain('dither:normal');
+
+      // Update uniform in-place
+      pipeline.updateUniform('tone-1', 'brightness', 1.8);
+      const uniforms = pipeline.getUniformsMap();
+      expect(uniforms.get('tone-1:brightness')?.value).toBe(1.8);
+
+      // Re-syncing same topology retains cached compiled pipeline instance
+      pipeline.syncStack(stack, 'high');
+      expect(pipeline.getCurrentPipeline()).toBe(initialPipeline);
+      expect(pipeline.getTopologyHash()).toBe(initialHash);
+
+      // Changing topology (adding a pass) compiles new pipeline
+      const expandedStack: ActiveEffectPass[] = [
+        ...stack,
+        createPass('threshold', 'thresh-1', { threshold: 0.5 }),
+      ];
+      pipeline.syncStack(expandedStack, 'high');
+      const newPipeline = pipeline.getCurrentPipeline();
+      expect(newPipeline).not.toBe(initialPipeline);
+      expect(pipeline.getTopologyHash()).toContain('threshold:normal');
+
+      pipeline.dispose();
+    });
+
+    it('enforces tier budget inside StudioPipeline.syncStack when tier is low', () => {
+      const canvas = document.createElement('canvas');
+      const pipeline = new StudioPipeline({ canvas });
+
+      const stack: ActiveEffectPass[] = [
+        createPass('tone', 'pass-1'),
+        createPass('dither', 'pass-2'),
+        createPass('blockify', 'pass-3'),
+        createPass('threshold', 'pass-4'),
+        createPass('dots', 'pass-5'),
+      ];
+
+      // Sync with Low tier
+      pipeline.syncStack(stack, 'low');
+      const activeStack = pipeline.getCurrentStack();
+
+      // Exactly 3 passes remain enabled
+      expect(activeStack.filter((p) => p.enabled)).toHaveLength(3);
+      expect(activeStack.filter((p) => !p.enabled)).toHaveLength(2);
+
+      pipeline.dispose();
     });
   });
 });

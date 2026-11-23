@@ -7,24 +7,17 @@ import {
 } from 'three/tsl';
 import { StudioRenderer } from './Renderer';
 import { TextureAtlas } from './TextureAtlas';
-import { preToneNode } from './shaders/preTone';
-import { asciiShaderNode } from './shaders/ascii';
-import { ditherShaderNode } from './shaders/dither';
-import { halftoneShaderNode } from './shaders/halftone';
-import { matrixRainShaderNode } from './shaders/matrixRain';
-import { pixelSortShaderNode } from './shaders/pixelSort';
-import { vhsShaderNode } from './shaders/vhs';
+import { PassPool } from './graph/PassPool';
 import {
-  dotsShaderNode,
-  contourShaderNode,
-  blockifyShaderNode,
-  thresholdShaderNode,
-  edgeDetectShaderNode,
-  crosshatchShaderNode,
-  waveLinesShaderNode,
-  noiseFieldShaderNode,
-  voronoiShaderNode,
-} from './shaders/effects';
+  GraphCompiler,
+  computeTopologyHash,
+  type CompiledPipeline,
+} from './graph/GraphCompiler';
+import { evaluateTierBudget, type QualityTier } from './capabilities';
+import type {
+  ActiveEffectPass,
+  EffectEnvironment,
+} from './registry/types';
 import type { ToneSettings, AsciiSettings, EffectMode } from '../types/studio';
 
 export interface PipelineOptions {
@@ -34,135 +27,167 @@ export interface PipelineOptions {
 export type ColorGradingPreset = 'original' | 'green' | 'amber' | 'cyan';
 
 /**
- * 4-Stage Stage-Gated Shader Pipeline supporting all 16 Grainrad Modes (D-02, D-06, SHADER-01, SHADER-02, SHADER-03, SHADER-04).
+ * Shader Engine 2.0 Dynamic Composable Pipeline (D-01, D-06, D-21, D-22, D-23, D-24, FX-01).
+ * Features hybrid pointwise pass fusion, pooled intermediate RenderTargets,
+ * quality tier budget enforcement, and zero-recompile uniform updates.
  */
 export class StudioPipeline {
   private studioRenderer: StudioRenderer;
   private renderer: THREE.WebGPURenderer | null = null;
   private textureAtlas: TextureAtlas;
+  private passPool: PassPool;
+  private graphCompiler: GraphCompiler;
 
   // Scene & Display Mesh
   private scene: THREE.Scene;
   private camera: THREE.OrthographicCamera;
-  private displayMaterial: THREE.MeshBasicNodeMaterial;
   private displayMesh: THREE.Mesh;
+  private fallbackMaterial: THREE.MeshBasicNodeMaterial;
+
+  // Dimensions
+  private width = 800;
+  private height = 600;
 
   // Input source texture
   private sourceTexture: THREE.Texture | null = null;
   private sourceTextureNode: any = null;
 
-  // Shared Uniforms
+  // Shared Global Uniforms
   private resolutionUniform: any;
   private timeUniform: any;
+  private seedUniform: any;
 
-  // Tone Uniforms (Stage 1)
-  private brightnessUniform: any;
-  private contrastUniform: any;
-  private saturationUniform: any;
-  private hueRotationUniform: any;
-  private gammaUniform: any;
-  private invertUniform: any;
+  // Active stack & pipeline cache (D-22)
+  private currentStack: ActiveEffectPass[] = [];
+  private currentTier: QualityTier = 'high';
+  private pipelineCache = new Map<string, CompiledPipeline>();
+  private currentPipeline: CompiledPipeline | null = null;
+  private uniformsMap = new Map<string, any>();
 
-  // ASCII Uniforms (Stage 2)
-  private cellScaleUniform: any;
-  private charSpacingUniform: any;
-  private charAspectUniform: any;
-  private rampLengthUniform: any;
-
-  // Dither Uniforms
-  private ditherMatrixType: any;
-  private ditherColorSteps: any;
-  private ditherSpread: any;
-
-  // Halftone Uniforms
-  private halftoneFrequency: any;
-  private halftoneAngle: any;
-  private halftoneDotRadius: any;
-
-  // Matrix Rain Uniforms
-  private matrixSpeed: any;
-  private matrixDropLength: any;
-  private matrixDensity: any;
-
-  // Pixel Sort Uniforms
-  private sortThreshold: any;
-  private sortSpan: any;
-  private sortDirection: any;
-
-  // Generic Effect Uniforms
-  private genericParamA: any;
-  private genericParamB: any;
-
-  // VHS/CRT Uniforms (Stage 4)
-  private vhsScanlineIntensity: any;
-  private vhsScanlineFrequency: any;
-  private vhsAberration: any;
-  private vhsNoiseIntensity: any;
-  private vhsCurvature: any;
-
+  // Legacy single-effect state for backwards compatibility
   private activeEffect: EffectMode = 'ascii';
   private colorGrading: ColorGradingPreset = 'original';
+  private legacyTone: ToneSettings = {
+    brightness: 1.0,
+    contrast: 1.0,
+    saturation: 1.0,
+    hueRotation: 0.0,
+    gamma: 1.0,
+    invert: false,
+  };
+  private legacyAscii: AsciiSettings = {
+    cellScale: 8.0,
+    charSpacing: 0.0,
+    charAspect: 0.5,
+    rampPreset: 'standard',
+    customChars: '',
+  };
+  private legacyParams: Record<string, number> = {};
+
   private isDisposed = false;
+  private unbindContextListeners: (() => void) | null = null;
 
   constructor(options: PipelineOptions) {
     this.studioRenderer = new StudioRenderer({ canvas: options.canvas });
     this.textureAtlas = new TextureAtlas();
+    this.passPool = new PassPool();
+    this.graphCompiler = new GraphCompiler();
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
     // Initial uniform nodes
     this.resolutionUniform = uniform(vec2(1, 1));
-    this.timeUniform = uniform(0);
+    this.timeUniform = uniform(0.0);
+    this.seedUniform = uniform(1.0);
 
-    this.brightnessUniform = uniform(1.0);
-    this.contrastUniform = uniform(1.0);
-    this.saturationUniform = uniform(1.0);
-    this.hueRotationUniform = uniform(0.0);
-    this.gammaUniform = uniform(1.0);
-    this.invertUniform = uniform(0.0);
+    this.fallbackMaterial = new THREE.MeshBasicNodeMaterial();
+    this.fallbackMaterial.colorNode = vec4(0.06, 0.06, 0.06, 1.0);
 
-    this.cellScaleUniform = uniform(8.0);
-    this.charSpacingUniform = uniform(0.0);
-    this.charAspectUniform = uniform(0.5);
-    this.rampLengthUniform = uniform(10.0);
-
-    this.ditherMatrixType = uniform(1.0);
-    this.ditherColorSteps = uniform(4.0);
-    this.ditherSpread = uniform(0.5);
-
-    this.halftoneFrequency = uniform(50.0);
-    this.halftoneAngle = uniform(45.0);
-    this.halftoneDotRadius = uniform(1.0);
-
-    this.matrixSpeed = uniform(1.0);
-    this.matrixDropLength = uniform(15.0);
-    this.matrixDensity = uniform(40.0);
-
-    this.sortThreshold = uniform(0.5);
-    this.sortSpan = uniform(20.0);
-    this.sortDirection = uniform(0.0);
-
-    this.genericParamA = uniform(8.0);
-    this.genericParamB = uniform(1.0);
-
-    this.vhsScanlineIntensity = uniform(0.0);
-    this.vhsScanlineFrequency = uniform(800.0);
-    this.vhsAberration = uniform(0.0);
-    this.vhsNoiseIntensity = uniform(0.0);
-    this.vhsCurvature = uniform(0.0);
-
-    this.displayMaterial = new THREE.MeshBasicNodeMaterial();
     const planeGeo = new THREE.PlaneGeometry(2, 2);
-    this.displayMesh = new THREE.Mesh(planeGeo, this.displayMaterial);
+    this.displayMesh = new THREE.Mesh(planeGeo, this.fallbackMaterial);
     this.scene.add(this.displayMesh);
+
+    // Attach GPU context lifecycle listeners (D-24)
+    this.unbindContextListeners = this.passPool.attachContextListeners(
+      options.canvas,
+      () => this.handleContextRestored(),
+      () => this.handleContextLost()
+    );
   }
 
   async init(): Promise<void> {
     await this.studioRenderer.init();
     this.renderer = this.studioRenderer.getRenderer();
     this.textureAtlas.updateRamp('standard');
-    this.rebuildPipeline();
+    this.syncLegacyStack();
+  }
+
+  /**
+   * Sets or updates the active effect stack per D-01, D-21, D-22, D-23.
+   * Rebuilds compiled materials ONLY when stack topology changes; otherwise mutates uniforms in-place.
+   */
+  syncStack(activeStack: ActiveEffectPass[], tier: QualityTier = this.currentTier): void {
+    this.currentTier = tier;
+
+    // 1. Enforce Quality Tier Budget (D-23, T-02-04)
+    const { allowedStack } = evaluateTierBudget(activeStack, tier);
+    this.currentStack = allowedStack;
+
+    // 2. Compute topology hash on allowed enabled passes (D-22)
+    const newHash = computeTopologyHash(allowedStack);
+
+    // If topology matches current pipeline, retain current compiled material and update uniforms
+    if (this.currentPipeline && this.currentPipeline.topologyHash === newHash) {
+      for (const pass of allowedStack) {
+        if (!pass.enabled) continue;
+        for (const [k, v] of Object.entries(pass.parameters)) {
+          this.updateUniform(pass.instanceId, k, v);
+        }
+        this.updateUniform(pass.instanceId, 'intensity', pass.intensity);
+      }
+      return;
+    }
+
+    // 3. Topology changed: retrieve cached pipeline or compile new one
+    let pipeline = this.pipelineCache.get(newHash);
+    if (!pipeline) {
+      const stages = this.graphCompiler.planExecutionStages(allowedStack);
+      const env: EffectEnvironment = {
+        resolution: this.resolutionUniform,
+        time: this.timeUniform,
+        seed: this.seedUniform,
+        textureAtlas: this.textureAtlas.getTexture(),
+      };
+
+      pipeline = this.graphCompiler.compileGraph(
+        this.sourceTextureNode,
+        stages,
+        this.uniformsMap,
+        env
+      );
+      this.pipelineCache.set(newHash, pipeline);
+    }
+
+    this.currentPipeline = pipeline;
+    this.displayMesh.material = pipeline.finalMaterial;
+  }
+
+  /**
+   * Mutates an existing TSL UniformNode value in-place without triggering graph compilation (D-22).
+   */
+  updateUniform(instanceId: string, paramKey: string, value: any): void {
+    const key = `${instanceId}:${paramKey}`;
+    const u = this.uniformsMap.get(key);
+    if (u && typeof u === 'object' && 'value' in u) {
+      u.value = value;
+    }
+
+    // Keep parameters state synchronized
+    const pass = this.currentStack.find((p) => p.instanceId === instanceId);
+    if (pass && pass.parameters) {
+      pass.parameters[paramKey] = value;
+    }
   }
 
   setSourceTexture(tex: THREE.Texture): void {
@@ -171,7 +196,10 @@ export class StudioPipeline {
     tex.magFilter = THREE.LinearFilter;
     tex.generateMipmaps = false;
     this.sourceTextureNode = texture(tex);
-    this.rebuildPipeline();
+
+    // Clear pipeline cache so new source texture node is bound
+    this.disposePipelineCache();
+    this.syncStack(this.currentStack);
   }
 
   clearSource(): void {
@@ -180,250 +208,119 @@ export class StudioPipeline {
       this.sourceTexture = null;
     }
     this.sourceTextureNode = null;
-    this.rebuildPipeline();
+    this.disposePipelineCache();
+    this.syncStack(this.currentStack);
   }
 
+  // Backwards compatibility: updates pre-tone settings
   updateTone(settings: ToneSettings): void {
-    this.brightnessUniform.value = settings.brightness;
-    this.contrastUniform.value = settings.contrast;
-    this.saturationUniform.value = settings.saturation;
-    this.hueRotationUniform.value = settings.hueRotation;
-    this.gammaUniform.value = settings.gamma;
-    this.invertUniform.value = settings.invert ? 1.0 : 0.0;
+    this.legacyTone = { ...settings };
+    this.updateUniform('legacy-tone', 'brightness', settings.brightness);
+    this.updateUniform('legacy-tone', 'contrast', settings.contrast);
+    this.updateUniform('legacy-tone', 'saturation', settings.saturation);
+    this.updateUniform('legacy-tone', 'hueRotation', settings.hueRotation);
+    this.updateUniform('legacy-tone', 'gamma', settings.gamma);
+    this.updateUniform('legacy-tone', 'invert', settings.invert ? 1.0 : 0.0);
   }
 
+  // Backwards compatibility: updates ASCII settings
   updateAscii(settings: AsciiSettings): void {
-    this.cellScaleUniform.value = settings.cellScale;
-    this.charSpacingUniform.value = settings.charSpacing;
-    this.charAspectUniform.value = settings.charAspect;
-
+    this.legacyAscii = { ...settings };
     this.textureAtlas.updateRamp(settings.rampPreset, settings.customChars);
-    this.rampLengthUniform.value = this.textureAtlas.getCharCount();
+
+    this.updateUniform('legacy-ascii', 'cellScale', settings.cellScale);
+    this.updateUniform('legacy-ascii', 'charSpacing', settings.charSpacing);
+    this.updateUniform('legacy-ascii', 'charAspect', settings.charAspect);
+    this.updateUniform('legacy-ascii', 'rampLength', this.textureAtlas.getCharCount());
   }
 
+  // Backwards compatibility: updates generic parameter
   updateEffectParam(key: string, value: number): void {
-    switch (key) {
-      case 'ditherSteps': this.ditherColorSteps.value = value; break;
-      case 'ditherSpread': this.ditherSpread.value = value; break;
-      case 'halftoneFreq': this.halftoneFrequency.value = value; break;
-      case 'halftoneAngle': this.halftoneAngle.value = value; break;
-      case 'halftoneRadius': this.halftoneDotRadius.value = value; break;
-      case 'matrixSpeed': this.matrixSpeed.value = value; break;
-      case 'matrixDensity': this.matrixDensity.value = value; break;
-      case 'sortThreshold': this.sortThreshold.value = value; break;
-      case 'sortSpan': this.sortSpan.value = value; break;
-      case 'sortDirection': this.sortDirection.value = value; break;
-      case 'genericA': this.genericParamA.value = value; break;
-      case 'genericB': this.genericParamB.value = value; break;
-      case 'vhsScanlineIntensity': this.vhsScanlineIntensity.value = value; break;
-      case 'vhsAberration': this.vhsAberration.value = value; break;
-      case 'vhsNoiseIntensity': this.vhsNoiseIntensity.value = value; break;
-      case 'vhsCurvature': this.vhsCurvature.value = value; break;
-    }
+    this.legacyParams[key] = value;
+    this.updateUniform(`legacy-${this.activeEffect}`, key, value);
   }
 
+  // Backwards compatibility: switches active single effect
   setEffect(effect: EffectMode): void {
     if (this.activeEffect !== effect) {
       this.activeEffect = effect;
-      this.rebuildPipeline();
+      this.syncLegacyStack();
     }
   }
 
+  // Backwards compatibility: sets color grading
   setColorGrading(preset: ColorGradingPreset): void {
     if (this.colorGrading !== preset) {
       this.colorGrading = preset;
-      this.rebuildPipeline();
+      this.syncLegacyStack();
     }
   }
 
-  private rebuildPipeline(): void {
-    if (!this.sourceTextureNode) {
-      this.displayMaterial.colorNode = vec4(0.06, 0.06, 0.06, 1.0);
-      this.displayMaterial.needsUpdate = true;
-      return;
-    }
+  /**
+   * Synthesizes and synchronizes a legacy single-effect stack for backwards compatibility.
+   */
+  private syncLegacyStack(): void {
+    const stack: ActiveEffectPass[] = [];
 
-    // Stage 1: Pre-Tone sampler (supports custom UV coordinates for spatial shaders)
-    const samplePreTone = (customUV?: any) => {
-      const srcNode = customUV && this.sourceTexture
-        ? texture(this.sourceTexture, customUV)
-        : this.sourceTextureNode;
-      return preToneNode({
-        colorNode: srcNode,
-        brightness: this.brightnessUniform,
-        contrast: this.contrastUniform,
-        saturation: this.saturationUniform,
-        hueRotation: this.hueRotationUniform,
-        gamma: this.gammaUniform,
-        invert: this.invertUniform,
+    // 1. Tone pass
+    stack.push({
+      instanceId: 'legacy-tone',
+      effectId: 'tone',
+      enabled: true,
+      intensity: 1.0,
+      blendMode: 'normal',
+      parameters: {
+        brightness: this.legacyTone.brightness,
+        contrast: this.legacyTone.contrast,
+        saturation: this.legacyTone.saturation,
+        hueRotation: this.legacyTone.hueRotation,
+        gamma: this.legacyTone.gamma,
+        invert: this.legacyTone.invert ? 1.0 : 0.0,
+      },
+    });
+
+    // 2. Primary effect pass
+    if (this.activeEffect === 'ascii') {
+      stack.push({
+        instanceId: 'legacy-ascii',
+        effectId: 'ascii',
+        enabled: true,
+        intensity: 1.0,
+        blendMode: 'normal',
+        parameters: {
+          cellScale: this.legacyAscii.cellScale,
+          charSpacing: this.legacyAscii.charSpacing,
+          charAspect: this.legacyAscii.charAspect,
+          rampLength: this.textureAtlas.getCharCount(),
+        },
       });
-    };
-
-    const preToneOut = samplePreTone();
-
-    // Stage 2: 16 Grainrad Primary Effect Switching (D-02)
-    let effectOut: any = preToneOut;
-
-    switch (this.activeEffect) {
-      case 'ascii': {
-        const atlasTexNode = texture(this.textureAtlas.getTexture());
-        effectOut = asciiShaderNode({
-          sourceNode: preToneOut,
-          atlasTexture: atlasTexNode,
-          cellScale: this.cellScaleUniform,
-          charSpacing: this.charSpacingUniform,
-          charAspect: this.charAspectUniform,
-          rampLength: this.rampLengthUniform,
-          resolution: this.resolutionUniform,
-        });
-        break;
-      }
-      case 'dither':
-        effectOut = ditherShaderNode({
-          colorNode: preToneOut,
-          matrixType: this.ditherMatrixType,
-          colorSteps: this.ditherColorSteps,
-          resolution: this.resolutionUniform,
-          spread: this.ditherSpread,
-        });
-        break;
-      case 'halftone':
-        effectOut = halftoneShaderNode({
-          colorNode: preToneOut,
-          frequency: this.halftoneFrequency,
-          angle: this.halftoneAngle,
-          dotRadius: this.halftoneDotRadius,
-          resolution: this.resolutionUniform,
-        });
-        break;
-      case 'matrix':
-        effectOut = matrixRainShaderNode({
-          colorNode: preToneOut,
-          speed: this.matrixSpeed,
-          dropLength: this.matrixDropLength,
-          density: this.matrixDensity,
-          time: this.timeUniform,
-          resolution: this.resolutionUniform,
-        });
-        break;
-      case 'pixelSort':
-        effectOut = pixelSortShaderNode({
-          sampleAt: samplePreTone,
-          threshold: this.sortThreshold,
-          sortSpan: this.sortSpan,
-          direction: this.sortDirection,
-          resolution: this.resolutionUniform,
-          time: this.timeUniform,
-        });
-        break;
-      case 'dots':
-        effectOut = dotsShaderNode({
-          colorNode: preToneOut,
-          spacing: this.genericParamA,
-          radius: this.genericParamB,
-          resolution: this.resolutionUniform,
-        });
-        break;
-      case 'contour':
-        effectOut = contourShaderNode({
-          colorNode: preToneOut,
-          steps: this.genericParamA,
-          lineWidth: this.genericParamB.mul(0.1),
-        });
-        break;
-      case 'blockify':
-        effectOut = blockifyShaderNode({
-          sampleAt: samplePreTone,
-          blockSize: this.genericParamA,
-          gridLine: this.genericParamB,
-          resolution: this.resolutionUniform,
-        });
-        break;
-      case 'threshold':
-        effectOut = thresholdShaderNode({
-          colorNode: preToneOut,
-          threshold: this.genericParamB.mul(0.5),
-        });
-        break;
-      case 'edgeDetect':
-        effectOut = edgeDetectShaderNode({
-          colorNode: preToneOut,
-          sensitivity: this.genericParamA,
-        });
-        break;
-      case 'crosshatch':
-        effectOut = crosshatchShaderNode({
-          colorNode: preToneOut,
-          spacing: this.genericParamA,
-          resolution: this.resolutionUniform,
-        });
-        break;
-      case 'waveLines':
-        effectOut = waveLinesShaderNode({
-          colorNode: preToneOut,
-          frequency: this.genericParamA,
-          amplitude: this.genericParamB,
-          time: this.timeUniform,
-        });
-        break;
-      case 'noise':
-        effectOut = noiseFieldShaderNode({
-          colorNode: preToneOut,
-          intensity: this.genericParamB,
-          time: this.timeUniform,
-        });
-        break;
-      case 'voronoi':
-        effectOut = voronoiShaderNode({
-          colorNode: preToneOut,
-          scale: this.genericParamA,
-          resolution: this.resolutionUniform,
-        });
-        break;
-      case 'vhs':
-      case 'tone':
-      default:
-        effectOut = preToneOut;
-        break;
-    }
-
-    // Stage 3: Color Grading
-    let gradedOut: any = effectOut;
-    if (this.colorGrading === 'green') {
-      const lum = effectOut.r.mul(0.299).add(effectOut.g.mul(0.587)).add(effectOut.b.mul(0.114));
-      gradedOut = vec4(lum.mul(0.2), lum.mul(1.0), lum.mul(0.2), effectOut.a);
-    } else if (this.colorGrading === 'amber') {
-      const lum = effectOut.r.mul(0.299).add(effectOut.g.mul(0.587)).add(effectOut.b.mul(0.114));
-      gradedOut = vec4(lum.mul(1.0), lum.mul(0.69), lum.mul(0.0), effectOut.a);
-    } else if (this.colorGrading === 'cyan') {
-      const lum = effectOut.r.mul(0.299).add(effectOut.g.mul(0.587)).add(effectOut.b.mul(0.114));
-      gradedOut = vec4(lum.mul(0.0), lum.mul(0.94), lum.mul(1.0), effectOut.a);
-    }
-
-    // Stage 4: Post-FX Overlay (Applied when VHS mode is active)
-    let finalOut: any = gradedOut;
-    if (this.activeEffect === 'vhs') {
-      finalOut = vhsShaderNode({
-        colorNode: gradedOut,
-        scanlineIntensity: this.vhsScanlineIntensity,
-        scanlineFrequency: this.vhsScanlineFrequency,
-        aberration: this.vhsAberration,
-        noiseIntensity: this.vhsNoiseIntensity,
-        time: this.timeUniform,
-        curvature: this.vhsCurvature,
+    } else if (this.activeEffect !== 'tone' && this.activeEffect !== 'vhs') {
+      stack.push({
+        instanceId: `legacy-${this.activeEffect}`,
+        effectId: this.activeEffect,
+        enabled: true,
+        intensity: 1.0,
+        blendMode: 'normal',
+        parameters: { ...this.legacyParams },
       });
     }
 
-    this.displayMaterial.colorNode = finalOut;
-    this.displayMaterial.needsUpdate = true;
+    this.syncStack(stack);
   }
 
   resize(width: number, height: number): void {
     if (width <= 0 || height <= 0) return;
+    this.width = width;
+    this.height = height;
     this.resolutionUniform.value.set(width, height);
     this.studioRenderer.setSize(width, height);
+    this.passPool.prune(2);
   }
 
+  /**
+   * Renders the execution graph. Intermediate stages execute into pooled render targets,
+   * and the final stage renders onto the canvas display mesh (D-21, D-24).
+   */
   render(timeSeconds: number = 0): void {
     if (this.isDisposed || !this.renderer) return;
     this.timeUniform.value = timeSeconds;
@@ -435,17 +332,99 @@ export class StudioPipeline {
       }
     }
 
+    this.passPool.resetFrame();
+
+    if (!this.currentPipeline || this.currentPipeline.stages.length <= 1) {
+      this.displayMesh.material = this.currentPipeline
+        ? this.currentPipeline.finalMaterial
+        : this.fallbackMaterial;
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+
+    // Multi-stage execution with PassPool intermediate targets (D-21, D-24)
+    const stages = this.currentPipeline.stageDescriptors;
+    const stageCount = stages.length;
+
+    for (let i = 0; i < stageCount - 1; i++) {
+      const stageDesc = stages[i];
+      const target = this.passPool.acquire(
+        this.width,
+        this.height,
+        stageDesc.targetDescriptor
+      );
+
+      this.displayMesh.material = stageDesc.material;
+      this.renderer.setRenderTarget(target);
+      this.renderer.render(this.scene, this.camera);
+
+      // Pass target texture to next stage's input node
+      const nextStage = stages[i + 1];
+      if (nextStage.inputTextureNode) {
+        nextStage.inputTextureNode.value = target.texture;
+      }
+    }
+
+    // Final stage renders to canvas output
+    this.displayMesh.material = this.currentPipeline.finalMaterial;
+    this.renderer.setRenderTarget(null);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private handleContextLost(): void {
+    this.passPool.disposeAll();
+    this.disposePipelineCache();
+  }
+
+  private handleContextRestored(): void {
+    this.passPool.disposeAll();
+    this.disposePipelineCache();
+    this.syncStack(this.currentStack);
+  }
+
+  private disposePipelineCache(): void {
+    for (const pipeline of this.pipelineCache.values()) {
+      pipeline.dispose();
+    }
+    this.pipelineCache.clear();
+    this.currentPipeline = null;
   }
 
   getRenderer(): StudioRenderer {
     return this.studioRenderer;
   }
 
+  getPassPool(): PassPool {
+    return this.passPool;
+  }
+
+  getCurrentPipeline(): CompiledPipeline | null {
+    return this.currentPipeline;
+  }
+
+  getCurrentStack(): ActiveEffectPass[] {
+    return this.currentStack;
+  }
+
+  getTopologyHash(): string {
+    return this.currentPipeline?.topologyHash || '__empty__';
+  }
+
+  getUniformsMap(): Map<string, any> {
+    return this.uniformsMap;
+  }
+
   dispose(): void {
     this.isDisposed = true;
+    if (this.unbindContextListeners) {
+      this.unbindContextListeners();
+      this.unbindContextListeners = null;
+    }
+    this.disposePipelineCache();
+    this.passPool.disposeAll();
     this.textureAtlas.dispose();
-    this.displayMaterial.dispose();
+    this.fallbackMaterial.dispose();
     this.displayMesh.geometry.dispose();
     this.studioRenderer.dispose();
   }

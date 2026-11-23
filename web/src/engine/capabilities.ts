@@ -2,6 +2,9 @@
  * Client GPU capability detection and quality tier classification (D-08, RELY-09).
  */
 
+import type { ActiveEffectPass } from './registry/types';
+import { effectRegistry, EffectRegistry } from './registry/index';
+
 export type QualityTier = 'high' | 'medium' | 'low';
 
 export interface GpuCapabilities {
@@ -16,6 +19,8 @@ export interface TierConfig {
   maxDimension: number;
   targetFps: number;
   label: string;
+  maxPassBudget: number;
+  maxIntermediateTargets: number;
 }
 
 export const TIER_CONFIGS: Record<QualityTier, TierConfig> = {
@@ -23,18 +28,86 @@ export const TIER_CONFIGS: Record<QualityTier, TierConfig> = {
     maxDimension: 1080,
     targetFps: 60,
     label: 'High (1080p canvas, full shader passes, 60 FPS)',
+    maxPassBudget: 8,
+    maxIntermediateTargets: 4,
   },
   medium: {
     maxDimension: 720,
     targetFps: 30,
     label: 'Medium (720p canvas, optimized passes, 30 FPS)',
+    maxPassBudget: 5,
+    maxIntermediateTargets: 2,
   },
   low: {
     maxDimension: 480,
     targetFps: 30,
     label: 'Low (480p canvas, minimal passes, 30 FPS)',
+    maxPassBudget: 3,
+    maxIntermediateTargets: 1,
   },
 };
+
+export interface TierBudgetEvaluation {
+  allowedStack: ActiveEffectPass[];
+  exceeded: boolean;
+  disabledPassIds: string[];
+  totalCost: number;
+  maxBudget: number;
+}
+
+/**
+ * Evaluates active stack cost weights and intermediate target requirements against
+ * GPU quality tier budgets per D-23. Auto-disables lowest priority passes when exceeded.
+ */
+export function evaluateTierBudget(
+  stack: ActiveEffectPass[],
+  tier: QualityTier,
+  registry: EffectRegistry = effectRegistry
+): TierBudgetEvaluation {
+  const config = TIER_CONFIGS[tier];
+  const maxBudget = config.maxPassBudget;
+  const maxIntermediateTargets = config.maxIntermediateTargets;
+
+  let currentCost = 0;
+  let intermediateTargetCount = 0;
+  const disabledPassIds: string[] = [];
+  const allowedStack: ActiveEffectPass[] = [];
+
+  // Pass evaluation: foundational passes earlier in the stack take priority over later passes
+  for (let i = 0; i < stack.length; i++) {
+    const pass = stack[i];
+    if (!pass.enabled) {
+      allowedStack.push({ ...pass });
+      continue;
+    }
+
+    const def = registry.get(pass.effectId);
+    const cost = def?.costWeight ?? 1;
+    const requiresPass = def?.requiresPass ?? false;
+
+    const projectedCost = currentCost + cost;
+    const projectedTargets = intermediateTargetCount + (requiresPass ? 1 : 0);
+
+    if (projectedCost > maxBudget || projectedTargets > maxIntermediateTargets) {
+      disabledPassIds.push(pass.instanceId);
+      allowedStack.push({ ...pass, enabled: false });
+    } else {
+      currentCost = projectedCost;
+      if (requiresPass) {
+        intermediateTargetCount++;
+      }
+      allowedStack.push({ ...pass });
+    }
+  }
+
+  return {
+    allowedStack,
+    exceeded: disabledPassIds.length > 0,
+    disabledPassIds,
+    totalCost: currentCost,
+    maxBudget,
+  };
+}
 
 /**
  * Detect client WebGPU / WebGL2 capabilities and device characteristics to
