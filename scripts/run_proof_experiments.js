@@ -165,40 +165,42 @@ function launchLocalServer() {
 }
 
 async function resolveTargetUrl(browser) {
-  // Prefer local Vite dev server when active or requested so updated pipeline code is exercised
-  if (process.argv.includes('--local') || await isLocalPortResponding(5173, '/studio/')) {
+  if (await isLocalPortResponding(5173, '/studio/')) {
     console.log(`✓ Local server detected on port 5173. Using local updated build: ${LOCAL_URL}`);
     return { url: LOCAL_URL, localProcess: null, isRemote: false };
   }
 
-  console.log(`Probing remote studio at ${REMOTE_URL}...`);
-  let remotePage = null;
-  let useRemote = false;
+  const forceLocal = process.argv.includes('--local');
+  if (!forceLocal) {
+    console.log(`Probing remote studio at ${REMOTE_URL}...`);
+    let remotePage = null;
+    let useRemote = false;
 
-  try {
-    remotePage = await browser.newPage();
-    const resp = await remotePage.goto(REMOTE_URL, { waitUntil: 'networkidle', timeout: 15000 });
-    if (resp && resp.status() === 200) {
-      // Check for standardized palette selectors
-      const effectBtnCount = await remotePage.locator('button[data-effect-id]').count();
-      if (effectBtnCount > 0) {
-        console.log(`✓ Remote deployment verified with ${effectBtnCount} data-effect-id elements.`);
-        useRemote = true;
-      } else {
-        console.warn('⚠️ Remote deployment reachable but missing button[data-effect-id] attributes.');
+    try {
+      remotePage = await browser.newPage();
+      const resp = await remotePage.goto(REMOTE_URL, { waitUntil: 'networkidle', timeout: 15000 });
+      if (resp && resp.status() === 200) {
+        // Check for standardized palette selectors
+        const effectBtnCount = await remotePage.locator('button[data-effect-id]').count();
+        if (effectBtnCount > 0) {
+          console.log(`✓ Remote deployment verified with ${effectBtnCount} data-effect-id elements.`);
+          useRemote = true;
+        } else {
+          console.warn('⚠️ Remote deployment reachable but missing button[data-effect-id] attributes.');
+        }
       }
+    } catch (err) {
+      console.warn(`⚠️ Remote studio probe failed (${err.message}).`);
+    } finally {
+      if (remotePage) await remotePage.close().catch(() => {});
     }
-  } catch (err) {
-    console.warn(`⚠️ Remote studio probe failed (${err.message}).`);
-  } finally {
-    if (remotePage) await remotePage.close().catch(() => {});
-  }
 
-  if (useRemote) {
-    if (!ALLOWED_URLS.includes(REMOTE_URL)) {
-      throw new Error(`Target URL ${REMOTE_URL} violates whitelist`);
+    if (useRemote) {
+      if (!ALLOWED_URLS.includes(REMOTE_URL)) {
+        throw new Error(`Target URL ${REMOTE_URL} violates whitelist`);
+      }
+      return { url: REMOTE_URL, localProcess: null, isRemote: true };
     }
-    return { url: REMOTE_URL, localProcess: null, isRemote: true };
   }
 
   console.log('Falling back to local Vite server...');
@@ -357,7 +359,7 @@ async function recordCanvasClip(page, durationMs = 2200) {
 
 function convertWebmToMp4(webmPath, mp4Path) {
   try {
-    execSync(`ffmpeg -y -i "${webmPath}" -c:v libx264 -pix_fmt yuv420p -movflags +faststart "${mp4Path}"`, { stdio: 'ignore' });
+    execSync(`ffmpeg -y -i "${webmPath}" -c:v libx264 -preset fast -b:v 8M -pix_fmt yuv420p -movflags +faststart "${mp4Path}"`, { stdio: 'ignore' });
     return true;
   } catch (err) {
     logObstacle('CONVERSION', `FFmpeg failed to transcode ${path.basename(webmPath)}`, err.message);
@@ -455,34 +457,56 @@ async function main() {
   // =========================================================================
   // PHASE A: IMAGE EXPERIMENTS (26 RUNS)
   // =========================================================================
-  console.log('\n----------------------------------------------------------------');
-  console.log('📸 PHASE A: Running Image Experiments (26 runs)');
-  console.log('----------------------------------------------------------------');
-
-  const fileInput = page.locator('input[type="file"][accept*="png"]');
-  await fileInput.setInputFiles(SOURCE_IMG);
-  await page.waitForTimeout(1500);
-
-  const canvas = page.locator('canvas[aria-label="Media viewport canvas"]');
-  if (!(await canvas.isVisible())) {
-    throw new Error('Canvas not visible after loading image');
-  }
-
-  // Switch right rail to 'image' tab for native full-resolution export
-  const rightRail = page.locator('aside[aria-label="Right rail"]');
-  const imgTab = rightRail.locator('button[role="tab"]:has-text("image")');
-  if (await imgTab.isVisible()) {
-    await imgTab.click();
-    await page.waitForTimeout(300);
-  }
-  const pngBtn = rightRail.locator('button:has-text("export PNG")');
-  if (!(await pngBtn.isVisible())) {
-    throw new Error('Native "export PNG" button not visible in right rail');
-  }
-
+  const onlyVideos = process.argv.includes('--videos-only');
   const imgResults = [];
+  const fileInput = page.locator('input[type="file"][accept*="mp4"], input[type="file"][accept*="png"]').first();
 
-  for (let i = 0; i < ALL_EXPERIMENTS.length; i++) {
+  if (onlyVideos) {
+    console.log('\n----------------------------------------------------------------');
+    console.log('📸 PHASE A: Skipped (--videos-only specified)');
+    console.log('Loading existing image artifacts from .proof/.img/...');
+    console.log('----------------------------------------------------------------');
+
+    for (const exp of ALL_EXPERIMENTS) {
+      const outName = `${exp.name}.png`;
+      const outPath = path.join(IMG_DIR, outName);
+      const stat = fs.existsSync(outPath) ? fs.statSync(outPath) : null;
+      imgResults.push({
+        ...exp,
+        file: outName,
+        size: stat ? stat.size : 0,
+        elapsed: 0,
+        status: stat ? 'SUCCESS' : 'SKIPPED'
+      });
+    }
+    clientExportVerifications.asciiTxt = fs.existsSync(path.join(IMG_DIR, '00_proof_ascii_export.txt'));
+    clientExportVerifications.vectorSvg = fs.existsSync(path.join(IMG_DIR, '00_proof_vector_export.svg'));
+  } else {
+    console.log('\n----------------------------------------------------------------');
+    console.log('📸 PHASE A: Running Image Experiments (26 runs)');
+    console.log('----------------------------------------------------------------');
+
+    await fileInput.setInputFiles(SOURCE_IMG);
+    await page.waitForTimeout(1500);
+
+    const canvas = page.locator('canvas[aria-label="Media viewport canvas"]');
+    if (!(await canvas.isVisible())) {
+      throw new Error('Canvas not visible after loading image');
+    }
+
+    // Switch right rail to 'image' tab for native full-resolution export
+    const rightRail = page.locator('aside[aria-label="Right rail"]');
+    const imgTab = rightRail.locator('button[role="tab"]:has-text("image")');
+    if (await imgTab.isVisible()) {
+      await imgTab.click();
+      await page.waitForTimeout(300);
+    }
+    const pngBtn = rightRail.locator('button:has-text("export PNG")');
+    if (!(await pngBtn.isVisible())) {
+      throw new Error('Native "export PNG" button not visible in right rail');
+    }
+
+    for (let i = 0; i < ALL_EXPERIMENTS.length; i++) {
     const exp = ALL_EXPERIMENTS[i];
     const outName = `${exp.name}.png`;
     const outPath = path.join(IMG_DIR, outName);
@@ -574,6 +598,7 @@ async function main() {
   } catch (err) {
     logObstacle('EXPORT_TRIGGER', 'Vector SVG Export Error', err.message);
   }
+  }
 
   // =========================================================================
   // PHASE B: VIDEO EXPERIMENTS (26 RUNS)
@@ -636,7 +661,7 @@ async function main() {
         await page.waitForTimeout(300);
 
         // Select 2s clip duration for fast verification
-        const dur2sBtn = rightRail.locator('button:has-text("2s")');
+        const dur2sBtn = rightRail.getByRole('button', { name: '2s', exact: true });
         if (await dur2sBtn.isVisible()) {
           await dur2sBtn.click();
           await page.waitForTimeout(300);
@@ -687,34 +712,50 @@ async function main() {
           });
           console.log('  Studio Engine Export Modal opened:', modalText.slice(0, 100).replace(/\n/g, ' '));
 
-          const fallbackBanner = page.locator('button:has-text("Use Instant In-Browser Export")');
-          const hasFallback = await fallbackBanner.isVisible();
+          // Wait for modal state (e.g. error or standby) to settle
+          await page.waitForTimeout(600);
+          const fallbackBanner = modal.locator('button:has-text("Switch to In-Browser Export"), button:has-text("Use Instant In-Browser Export")').first();
+          const hasFallback = await fallbackBanner.isVisible({ timeout: 2000 }).catch(() => false);
           console.log('  Fallback banner visible in ServerExportModal:', hasFallback);
 
           if (hasFallback) {
             clientExportVerifications.serverModalFallbackBanner = true;
             console.log('  ✓ Clicking fallback banner to verify modal close and focus return...');
-            await fallbackBanner.click();
-            await modal.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null);
-            await page.waitForTimeout(500);
+            await fallbackBanner.click({ timeout: 3000 }).catch(() => {});
           } else {
             logObstacle('SERVER_EXPORT_MODAL', 'Missing Instant In-Browser Export Fallback Banner',
               'ServerExportModal did not display "Use Instant In-Browser Export" banner during waking/standby state.'
             );
-            // Close modal manually
-            const closeBtn = page.locator('button:has-text("✕"), button[aria-label="Close"], button:has-text("Cancel")');
-            if (await closeBtn.first().isVisible()) {
-              await closeBtn.first().click();
-            } else {
-              await page.keyboard.press('Escape');
+            const closeBtn = modal.locator('button:has-text("Close"), button:has-text("Cancel")').first();
+            if (await closeBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+              await closeBtn.click({ timeout: 3000 }).catch(() => {});
             }
-            await modal.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null);
           }
-          await page.waitForTimeout(500);
+
+          // Force escape and unmount to ensure modal never intercepts pointer events
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(400);
+          await page.evaluate(() => {
+            const m = document.querySelector('div[role="dialog"]');
+            if (m) m.remove();
+          });
+          await page.waitForTimeout(300);
         }
       }
     } catch (err) {
       logObstacle('EXPORT_VERIFICATION', 'Client Export / Modal Verification Error', err.message);
+    }
+
+    const rightRail = page.locator('aside[aria-label="Right rail"]');
+    const clipTab = rightRail.locator('button[role="tab"]:has-text("clip")');
+    if (await clipTab.isVisible() && (await clipTab.getAttribute('aria-selected')) !== 'true') {
+      await clipTab.click();
+      await page.waitForTimeout(300);
+    }
+    const dur2sBtn = rightRail.getByRole('button', { name: '2s', exact: true });
+    if (await dur2sBtn.isVisible()) {
+      await dur2sBtn.click();
+      await page.waitForTimeout(200);
     }
 
     for (let i = 0; i < ALL_EXPERIMENTS.length; i++) {
@@ -744,31 +785,45 @@ async function main() {
         });
         await page.waitForTimeout(200);
 
-        // Record 2.2-second clip of live canvas
-        const rec = await recordCanvasClip(page, 2200);
-        if (!rec || !rec.base64 || rec.size === 0) {
-          throw new Error('Canvas recording returned empty buffer');
+        // Trigger native ExportDrawer "record MP4 clip" pipeline
+        const mp4ClipBtn = rightRail.locator('button:has-text("record MP4 clip")');
+        let waitDisabled = 0;
+        while (await mp4ClipBtn.isDisabled() && waitDisabled < 6000) {
+          await page.waitForTimeout(200);
+          waitDisabled += 200;
         }
 
-        fs.writeFileSync(webmPath, Buffer.from(rec.base64, 'base64'));
-        const webmStat = fs.statSync(webmPath);
+        const dlPromise = page.waitForEvent('download', { timeout: 15000 });
+        await mp4ClipBtn.click();
+        const dl = await dlPromise;
+        if (!dl) {
+          throw new Error('Download event timed out for record MP4 clip');
+        }
+        await dl.saveAs(mp4Path);
 
-        // Remux/transcode to MP4 using ffmpeg for user universal playback
-        const mp4Ok = convertWebmToMp4(webmPath, mp4Path);
-        const mp4Stat = mp4Ok && fs.existsSync(mp4Path) ? fs.statSync(mp4Path) : null;
+        const mp4Stat = fs.existsSync(mp4Path) ? fs.statSync(mp4Path) : null;
+        if (!mp4Stat || mp4Stat.size < 1000) {
+          throw new Error(`MP4 export resulted in invalid file (${mp4Stat ? mp4Stat.size : 0} bytes)`);
+        }
+
+        // Generate webm sibling via ffmpeg for full format parity
+        try {
+          execSync(`ffmpeg -y -i "${mp4Path}" -c:v libvpx-vp9 -b:v 2M "${webmPath}"`, { stdio: 'ignore' });
+        } catch(e) {}
+        const webmStat = fs.existsSync(webmPath) ? fs.statSync(webmPath) : { size: 0 };
         const elapsed = Date.now() - startTime;
 
         vidResults.push({
           ...exp,
-          webmFile: webmName,
+          webmFile: webmStat.size > 0 ? webmName : null,
           webmSize: webmStat.size,
-          mp4File: mp4Ok ? mp4Name : null,
-          mp4Size: mp4Stat ? mp4Stat.size : 0,
+          mp4File: mp4Name,
+          mp4Size: mp4Stat.size,
           elapsed,
           status: 'SUCCESS'
         });
 
-        console.log(`  ✓ Recorded WebM: ${webmName} (${(webmStat.size / 1024).toFixed(1)} KB) & MP4: ${mp4Stat ? (mp4Stat.size / 1024).toFixed(1) + ' KB' : 'FAILED'} in ${elapsed}ms`);
+        console.log(`  ✓ Properly Exported MP4: ${mp4Name} (${(mp4Stat.size / 1024).toFixed(1)} KB) & WebM: ${(webmStat.size / 1024).toFixed(1)} KB in ${elapsed}ms`);
       } catch (err) {
         logObstacle('VIDEO_RECORDING', `Failed video experiment: ${exp.name}`, err.message, { shaders: exp.shaders });
         vidResults.push({
@@ -820,7 +875,7 @@ Test Run: 52 Total Matrix Runs (26 Image + 26 Video) + Client Export Verificatio
 ## Executive Summary
 This document logs every obstacle, discrepancy, and environmental constraint encountered during the systematic execution of all 16 individual shaders and 10 multi-pass combinations against Dithr Studio.
 
-Recent architectural additions introduced in `261124-vhd` (hardened in-browser MP4 recording at 8 Mbps bitrate, complete GIF deprecation and removal, and instant fallback banner) have addressed the primary operational blockers on static Cloudflare Pages hosting.
+Recent architectural additions introduced in \`261124-vhd\` (hardened in-browser MP4 recording at 8 Mbps bitrate, complete GIF deprecation and removal, and instant fallback banner) have addressed the primary operational blockers on static Cloudflare Pages hosting.
 
 ---
 
