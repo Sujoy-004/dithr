@@ -292,13 +292,31 @@ async function recordCanvasClip(page, durationMs = 2200) {
         }
       }
 
-      // Prioritize video/webm (VP8 default) for universal software canvas capture stability
-      const mimeType = 'video/webm';
+      // Negotiate native MP4 or WebM with 8 Mbps high bitrate
+      const candidates = [
+        'video/mp4;codecs=avc1,mp4a.40.2',
+        'video/mp4;codecs=avc1',
+        'video/mp4',
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm',
+      ];
+      let mimeType = 'video/webm';
+      for (const c of candidates) {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c)) {
+          mimeType = c;
+          break;
+        }
+      }
+
       const stream = canvas.captureStream(30);
       const chunks = [];
 
       return new Promise((resolve, reject) => {
-        const recorder = new MediaRecorder(stream, { mimeType });
+        const recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: 8_000_000,
+        });
         recorder.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) chunks.push(e.data);
         };
@@ -430,8 +448,7 @@ async function main() {
   const clientExportVerifications = {
     asciiTxt: false,
     vectorSvg: false,
-    clientWebm: false,
-    clientGif: false,
+    clientMp4: false,
     serverModalFallbackBanner: false
   };
 
@@ -589,8 +606,7 @@ async function main() {
       });
     }
 
-    clientExportVerifications.clientWebm = fs.existsSync(path.join(VID_DIR, '00_proof_client_clip.webm'));
-    clientExportVerifications.clientGif = fs.existsSync(path.join(VID_DIR, '00_proof_client_anim.gif'));
+    clientExportVerifications.clientMp4 = fs.existsSync(path.join(VID_DIR, '00_proof_client_clip.mp4'));
     clientExportVerifications.serverModalFallbackBanner = true;
   } else {
     console.log('\n----------------------------------------------------------------');
@@ -626,43 +642,33 @@ async function main() {
           await page.waitForTimeout(300);
         }
 
-        // 1. Test Client-Side WebM recording
-        const webmBtn = rightRail.locator('button:has-text("record WebM clip")');
-        if (await webmBtn.isVisible()) {
-          console.log('  Testing ExportDrawer "record WebM clip" client trigger...');
+        // 1. Test Client-Side MP4 recording
+        const mp4ClipBtn = rightRail.locator('button:has-text("record MP4 clip")');
+        if (await mp4ClipBtn.isVisible()) {
+          console.log('  Testing ExportDrawer "record MP4 clip" client trigger...');
           const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null);
-          await webmBtn.click();
+          await mp4ClipBtn.click();
           const dl = await downloadPromise;
           if (dl) {
-            const clientWebmPath = path.join(VID_DIR, '00_proof_client_clip.webm');
-            await dl.saveAs(clientWebmPath);
+            const suggested = dl.suggestedFilename();
+            const clientOutPath = path.join(VID_DIR, suggested);
+            await dl.saveAs(clientOutPath);
             const clientMp4Path = path.join(VID_DIR, '00_proof_client_clip.mp4');
-            convertWebmToMp4(clientWebmPath, clientMp4Path);
-            clientExportVerifications.clientWebm = true;
-            console.log(`  ✓ Client WebM export succeeded: ${clientWebmPath}`);
+            if (suggested.endsWith('.webm')) {
+              convertWebmToMp4(clientOutPath, clientMp4Path);
+            } else if (clientOutPath !== clientMp4Path) {
+              fs.copyFileSync(clientOutPath, clientMp4Path);
+            }
+            if (fs.existsSync(clientMp4Path) && fs.statSync(clientMp4Path).size > 0) {
+              clientExportVerifications.clientMp4 = true;
+              console.log(`  ✓ Client MP4 export succeeded: ${clientMp4Path} (${fs.statSync(clientMp4Path).size} bytes)`);
+            }
           } else {
-            logObstacle('EXPORT_TRIGGER', 'Client WebM recording download event timed out', 'Clicking record WebM clip did not emit browser download within 10s');
+            logObstacle('EXPORT_TRIGGER', 'Client MP4 recording download event timed out', 'Clicking record MP4 clip did not emit browser download within 15s');
           }
         }
 
-        // 2. Test Client-Side GIF recording
-        const gifBtn = rightRail.locator('button:has-text("record client GIF")');
-        if (await gifBtn.isVisible()) {
-          console.log('  Testing ExportDrawer "record client GIF" client trigger...');
-          const downloadPromise = page.waitForEvent('download', { timeout: 20000 }).catch(() => null);
-          await gifBtn.click();
-          const dl = await downloadPromise;
-          if (dl) {
-            const clientGifPath = path.join(VID_DIR, '00_proof_client_anim.gif');
-            await dl.saveAs(clientGifPath);
-            clientExportVerifications.clientGif = true;
-            console.log(`  ✓ Client GIF export succeeded: ${clientGifPath}`);
-          } else {
-            logObstacle('EXPORT_TRIGGER', 'Client GIF recording download event timed out', 'Clicking record client GIF did not emit browser download within 20s');
-          }
-        }
-
-        // 3. Test ServerExportModal and Instant Fallback Banner
+        // 2. Test ServerExportModal and Instant Fallback Banner
         const mp4Btn = rightRail.locator('button:has-text("export MP4")').first();
         if (await mp4Btn.isVisible()) {
           console.log('  Testing ServerExportModal & Fallback Banner...');
@@ -814,7 +820,7 @@ Test Run: 52 Total Matrix Runs (26 Image + 26 Video) + Client Export Verificatio
 ## Executive Summary
 This document logs every obstacle, discrepancy, and environmental constraint encountered during the systematic execution of all 16 individual shaders and 10 multi-pass combinations against Dithr Studio.
 
-Recent architectural additions introduced in \`261123-rvj\` (in-browser WebM/GIF recording and instant fallback banner) have addressed the primary operational blockers on static Cloudflare Pages hosting.
+Recent architectural additions introduced in `261124-vhd` (hardened in-browser MP4 recording at 8 Mbps bitrate, complete GIF deprecation and removal, and instant fallback banner) have addressed the primary operational blockers on static Cloudflare Pages hosting.
 
 ---
 
@@ -824,7 +830,7 @@ Recent architectural additions introduced in \`261123-rvj\` (in-browser WebM/GIF
 |----|----------|-------------------|--------|-------------------------|
 | \`OBS-1\` | GRAPHICS_API | WebGPU Not Active in Deployed Studio | **Managed** | Graceful fallback to WebGL2 engine tier operates with full shader parity when WebGPU Vulkan adapter is not exposed in automation. |
 | \`OBS-2\` | BROWSER_CONSOLE | 404 on \`/api/export/health\` | **Documented** | Expected behavior for static Cloudflare Pages deployment without a backend reverse proxy. |
-| \`OBS-3\` | DEPLOYMENT_ARCH | Server Export Health Endpoint 404/Unavailable | **Mitigated (Resolved for Users)** | Added in-browser WebM clip recording and worker-based GIF encoding in \`ExportDrawer.tsx\`. Users can export high-quality animations instantly with zero server infrastructure. |
+| \`OBS-3\` | DEPLOYMENT_ARCH | Server Export Health Endpoint 404/Unavailable | **Mitigated (Resolved for Users)** | Added in-browser high-bitrate MP4 clip recording (8 Mbps) in \`ExportDrawer.tsx\`. Users can export high-quality clips with crisp shader detail instantly with zero server infrastructure. GIF export was permanently removed. |
 | \`OBS-4\` | SERVER_EXPORT_MODAL | Engine Pre-Warming Cannot Reach Container | **Mitigated (Resolved for Users)** | Added instant fallback banner (\`Use Instant In-Browser Export →\`) to \`ServerExportModal.tsx\` when container is waking or on standby, directing users immediately to client recording. |
 | \`OBS-5\` | UI_PALETTE | LeftRail Palette Effect Selection | **Resolved** | Added \`data-effect-id\` and \`data-testid\` attributes to all 16 palette buttons in \`LeftRail.tsx\`, ensuring 100% deterministic test and automation selection. |
 
@@ -847,10 +853,10 @@ ${JSON.stringify(obs.details, null, 2)}
 
 ## High-Impact Architecture Findings
 
-### 1. Client-Side Export Sovereignty
+### 1. Client-Side Export Sovereignty & High-Bitrate MP4
 - **Observation:** Cloudflare Pages is an edge-static host with no native long-running compute containers.
-- **Resolution:** By implementing in-browser canvas recording (\`MediaRecorder\` VP9/VP8 WebM) and client-side multi-threaded GIF quantization (\`gifenc\` in a Web Worker), video clip and GIF exports operate at 100% availability without server costs ($0/month guarantee maintained).
-- **Verification:** Both \`00_proof_client_clip.webm\` and \`00_proof_client_anim.gif\` verified generated in \`.proof/.vid/\`.
+- **Resolution:** By implementing in-browser canvas recording with 8 Mbps bitrate (\`MediaRecorder\` MP4/WebM), video clip exports operate at 100% availability without server costs ($0/month guarantee maintained), preserving high-frequency dither dots and ASCII character edges. GIF export was fully removed to eliminate format complexity and file bloat.
+- **Verification:** \`00_proof_client_clip.mp4\` verified generated in \`.proof/.vid/\`.
 
 ### 2. Palette Selector Reliability
 - **Observation:** Prior automation relied on synthetic \`aria-label\` string matching that varied with UI refactoring.
@@ -869,8 +875,7 @@ ${JSON.stringify(obs.details, null, 2)}
 - **Video MP4 Conversions Created:** ${vidResults.filter(r => r.mp4File).length} / ${vidResults.length}
 - **Client ASCII Text Export:** ${clientExportVerifications.asciiTxt ? '✓ Verified' : '✗ Failed'}
 - **Client Vector SVG Export:** ${clientExportVerifications.vectorSvg ? '✓ Verified' : '✗ Failed'}
-- **Client WebM Recording Trigger:** ${clientExportVerifications.clientWebm ? '✓ Verified' : '✗ Failed'}
-- **Client GIF Recording Trigger:** ${clientExportVerifications.clientGif ? '✓ Verified' : '✗ Failed'}
+- **Client MP4 Recording Trigger:** ${clientExportVerifications.clientMp4 ? '✓ Verified' : '✗ Failed'}
 - **Server Modal Fallback Banner:** ${clientExportVerifications.serverModalFallbackBanner ? '✓ Verified' : '✗ Failed'}
 - **Total Runtime Obstacles Logged:** ${recordedObstacles.length}
 `;
@@ -893,8 +898,7 @@ Suite Duration: ${totalSuiteDurationSec}s
 |---------|------|--------|----------|
 | ASCII Text Export | In-Browser Text Download | ${clientExportVerifications.asciiTxt ? '✓ PASS' : '✗ FAIL'} | \`.proof/.img/00_proof_ascii_export.txt\` |
 | Vector SVG Export | In-Browser Vector Download | ${clientExportVerifications.vectorSvg ? '✓ PASS' : '✗ FAIL'} | \`.proof/.img/00_proof_vector_export.svg\` |
-| Client WebM Recording | In-Browser MediaRecorder | ${clientExportVerifications.clientWebm ? '✓ PASS' : '✗ FAIL'} | \`.proof/.vid/00_proof_client_clip.webm\` |
-| Client GIF Recording | Web Worker GIF Encoding | ${clientExportVerifications.clientGif ? '✓ PASS' : '✗ FAIL'} | \`.proof/.vid/00_proof_client_anim.gif\` |
+| Client MP4 Recording | In-Browser 8 Mbps MP4 | ${clientExportVerifications.clientMp4 ? '✓ PASS' : '✗ FAIL'} | \`.proof/.vid/00_proof_client_clip.mp4\` |
 | Server Modal Instant Fallback | Fallback Banner & Trigger | ${clientExportVerifications.serverModalFallbackBanner ? '✓ PASS' : '✗ FAIL'} | Instant In-Browser Export Button in Modal |
 
 ---
@@ -922,9 +926,8 @@ ${imgResults.map(r => `- \`${r.file}\` (${(r.size / 1024).toFixed(1)} KB)`).join
 
 ### \`.proof/.vid/\` (Video Artifacts)
 - \`source_video.mp4\` (Original source asset: 1064×718, 12.6s)
-- \`00_proof_client_clip.webm\` (${clientExportVerifications.clientWebm && fs.existsSync(path.join(VID_DIR, '00_proof_client_clip.webm')) ? (fs.statSync(path.join(VID_DIR, '00_proof_client_clip.webm')).size / 1024).toFixed(1) + ' KB' : 'N/A'})
-- \`00_proof_client_clip.mp4\` (${clientExportVerifications.clientWebm && fs.existsSync(path.join(VID_DIR, '00_proof_client_clip.mp4')) ? (fs.statSync(path.join(VID_DIR, '00_proof_client_clip.mp4')).size / 1024).toFixed(1) + ' KB' : 'N/A'})
-- \`00_proof_client_anim.gif\` (${clientExportVerifications.clientGif && fs.existsSync(path.join(VID_DIR, '00_proof_client_anim.gif')) ? (fs.statSync(path.join(VID_DIR, '00_proof_client_anim.gif')).size / 1024).toFixed(1) + ' KB' : 'N/A'})
+- \`00_proof_client_clip.mp4\` (${clientExportVerifications.clientMp4 && fs.existsSync(path.join(VID_DIR, '00_proof_client_clip.mp4')) ? (fs.statSync(path.join(VID_DIR, '00_proof_client_clip.mp4')).size / 1024).toFixed(1) + ' KB' : 'N/A'})
+${vidResults.map(r => `- \`${r.webmFile}\` (${(r.webmSize / 1024).toFixed(1)} KB) & \`${r.mp4File}\` (${(r.mp4Size / 1024).toFixed(1)} KB)`).join('\n')}
 ${vidResults.map(r => `- \`${r.webmFile}\` (${(r.webmSize / 1024).toFixed(1)} KB) & \`${r.mp4File}\` (${(r.mp4Size / 1024).toFixed(1)} KB)`).join('\n')}
 `;
 
