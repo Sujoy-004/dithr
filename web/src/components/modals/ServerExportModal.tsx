@@ -8,7 +8,7 @@ import { useStudioStore } from '../../store/useStudioStore';
 export interface ServerExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultFormat?: 'mp4' | 'gif';
+  defaultFormat?: 'mp4';
   onFallbackToClient?: () => void;
 }
 
@@ -31,7 +31,7 @@ export default function ServerExportModal({
   defaultFormat = 'mp4',
   onFallbackToClient,
 }: ServerExportModalProps) {
-  const [format, setFormat] = useState<'mp4' | 'gif'>(defaultFormat);
+  const format: 'mp4' = 'mp4';
   const [resolution, setResolution] = useState<'1080p' | '720p' | '480p'>('1080p');
   const [duration, setDuration] = useState(10);
   const [fps, setFps] = useState(30);
@@ -60,20 +60,14 @@ export default function ServerExportModal({
   const mediaDuration = useStudioStore((s) => s.duration);
   const mediaType = useStudioStore((s) => s.mediaType);
 
-  // Synchronize default format when changed from parent
+  // Synchronize duration when media changes
   useEffect(() => {
-    setFormat(defaultFormat);
     const initialDur = mediaType === 'video' && mediaDuration > 0
-      ? Math.min(defaultFormat === 'gif' ? 15 : 60, Math.max(1, Math.round(mediaDuration)))
-      : (defaultFormat === 'gif' ? 5 : 10);
+      ? Math.min(60, Math.max(1, Math.round(mediaDuration)))
+      : 10;
     setDuration(initialDur);
-    if (defaultFormat === 'gif') {
-      setResolution('720p');
-      setFps(12);
-    } else {
-      setResolution('1080p');
-      setFps(30);
-    }
+    setResolution('1080p');
+    setFps(30);
   }, [defaultFormat, mediaDuration, mediaType]);
 
   // Intent-driven container pre-warming with exponential backoff per D-04
@@ -158,7 +152,7 @@ export default function ServerExportModal({
       targetFps: fps,
       durationSec: duration,
       turnstileToken,
-      includeAudio: format === 'mp4' && includeAudio,
+      includeAudio,
       onProgress: (stage, pct, details) => {
         setCurrentStage(stage);
         setStageProgress(pct);
@@ -288,44 +282,17 @@ export default function ServerExportModal({
 
           {phase === 'config' && (
             <>
-              {/* Format selection */}
+              {/* Format & Pipeline Banner */}
               <div className="flex flex-col gap-1.5">
                 <span className="text-dim uppercase text-[10px] tracking-wider">Format & Pipeline</span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormat('mp4');
-                      setResolution('1080p');
-                      setFps(30);
-                      setDuration(10);
-                    }}
-                    className={`h-8 border px-3 text-left transition-colors ${
-                      format === 'mp4'
-                        ? 'border-highlight bg-active text-highlight'
-                        : 'border-border bg-raised text-dim hover:text-base'
-                    }`}
-                  >
-                    <div className="font-bold">MP4 Video (H.264)</div>
-                    <div className="text-[10px] opacity-70">Up to 1080p HD with Sync Audio</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormat('gif');
-                      setResolution('720p');
-                      setFps(12);
-                      setDuration(5);
-                    }}
-                    className={`h-8 border px-3 text-left transition-colors ${
-                      format === 'gif'
-                        ? 'border-highlight bg-active text-highlight'
-                        : 'border-border bg-raised text-dim hover:text-base'
-                    }`}
-                  >
-                    <div className="font-bold">Animated GIF</div>
-                    <div className="text-[10px] opacity-70">Two-pass 128-color Bayer Dither</div>
-                  </button>
+                <div className="border border-highlight bg-active p-2.5 text-highlight">
+                  <div className="font-bold flex items-center justify-between">
+                    <span>MP4 Video (H.264 HD)</span>
+                    <span className="text-[10px] uppercase text-emerald-400 font-semibold">Native H.264</span>
+                  </div>
+                  <div className="text-[11px] text-dim mt-1">
+                    Studio-grade high bitrate encoding with synchronized audio multiplexing up to 1080p HD and 60 FPS.
+                  </div>
                 </div>
               </div>
 
@@ -338,7 +305,7 @@ export default function ServerExportModal({
                     onChange={(e) => setResolution(e.target.value as '1080p' | '720p' | '480p')}
                     className="h-7 border border-border bg-active px-2 text-highlight focus:outline-none"
                   >
-                    {format === 'mp4' && <option value="1080p">1080p (1920x1080)</option>}
+                    <option value="1080p">1080p (1920x1080)</option>
                     <option value="720p">720p (1280x720)</option>
                     <option value="480p">480p (854x480)</option>
                   </select>
@@ -350,19 +317,9 @@ export default function ServerExportModal({
                     onChange={(e) => setFps(Number(e.target.value))}
                     className="h-7 border border-border bg-active px-2 text-highlight focus:outline-none"
                   >
-                    {format === 'mp4' ? (
-                      <>
-                        <option value={30}>30 FPS (Standard)</option>
-                        <option value={60}>60 FPS (Fluid)</option>
-                        <option value={24}>24 FPS (Cinematic)</option>
-                      </>
-                    ) : (
-                      <>
-                        <option value={12}>12 FPS (Recommended)</option>
-                        <option value={15}>15 FPS (High)</option>
-                        <option value={10}>10 FPS (Compact)</option>
-                      </>
-                    )}
+                    <option value={30}>30 FPS (Standard)</option>
+                    <option value={60}>60 FPS (Fluid)</option>
+                    <option value={24}>24 FPS (Cinematic)</option>
                   </select>
                 </div>
               </div>
@@ -376,7 +333,7 @@ export default function ServerExportModal({
                 <input
                   type="range"
                   min={1}
-                  max={format === 'gif' ? 15 : 60}
+                  max={60}
                   step={1}
                   value={duration}
                   onChange={(e) => setDuration(Number(e.target.value))}
@@ -384,22 +341,20 @@ export default function ServerExportModal({
                 />
                 <div className="flex justify-between text-[10px] text-dim">
                   <span>1s</span>
-                  <span>Max {format === 'gif' ? '15s (GIF ceiling)' : '60s (Video ceiling)'}</span>
+                  <span>Max 60s (Video ceiling)</span>
                 </div>
               </div>
 
               {/* Audio Toggle for MP4 */}
-              {format === 'mp4' && (
-                <label className="flex items-center gap-2 text-dim hover:text-base cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={includeAudio}
-                    onChange={(e) => setIncludeAudio(e.target.checked)}
-                    className="accent-highlight"
-                  />
-                  <span>Preserve & Synchronize Audio (Web Audio Graph + Fallback)</span>
-                </label>
-              )}
+              <label className="flex items-center gap-2 text-dim hover:text-base cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeAudio}
+                  onChange={(e) => setIncludeAudio(e.target.checked)}
+                  className="accent-highlight"
+                />
+                <span>Preserve & Synchronize Audio (Web Audio Graph + Fallback)</span>
+              </label>
 
               {/* Turnstile Bot Verification Widget per D-10 */}
               <TurnstileWidget
@@ -452,7 +407,7 @@ export default function ServerExportModal({
               <div className="grid grid-cols-3 gap-2 border border-border bg-active/40 p-2 text-[11px]">
                 <div>
                   <div className="text-dim text-[9px] uppercase">Format</div>
-                  <div className="text-highlight font-bold">{format.toUpperCase()} ({resolution})</div>
+                  <div className="text-highlight font-bold">MP4 ({resolution})</div>
                 </div>
                 <div>
                   <div className="text-dim text-[9px] uppercase">Encoding Speed</div>
@@ -512,7 +467,7 @@ export default function ServerExportModal({
                     <strong>Backend server is offline:</strong> Cannot connect to <code>http://localhost:8000</code>. Start the backend in a separate terminal window:
                     <br />
                     <code className="block bg-black px-2 py-1 mt-1 text-highlight">uvicorn src.api.main:app --port 8000</code>
-                    <span className="block mt-1 text-dim">Or use in-browser <strong>WebM Video</strong> / <strong>Animated GIF</strong> in the export panel, which requires no backend server.</span>
+                    <span className="block mt-1 text-dim">Or use in-browser <strong>record MP4 clip</strong> in the export panel, which requires no backend server.</span>
                   </p>
                 )}
               </div>
@@ -523,7 +478,7 @@ export default function ServerExportModal({
                     onClick={onFallbackToClient}
                     className="h-7 border border-highlight bg-active px-3 text-highlight font-medium hover:bg-highlight hover:text-black transition-colors"
                   >
-                    Switch to In-Browser Export (WebM/GIF)
+                    Switch to In-Browser Export (MP4)
                   </button>
                 )}
                 <button
@@ -552,7 +507,7 @@ export default function ServerExportModal({
               <div className="border border-border bg-black/40 p-3 text-xs flex flex-col gap-1.5">
                 <div className="flex justify-between">
                   <span className="text-dim">Format:</span>
-                  <span className="text-highlight font-bold">{format.toUpperCase()} ({resolution})</span>
+                  <span className="text-highlight font-bold">MP4 ({resolution})</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-dim">Duration:</span>
@@ -574,7 +529,7 @@ export default function ServerExportModal({
                 </button>
                 <a
                   href={downloadUrl}
-                  download={`export_${format}.${format}`}
+                  download="export_video.mp4"
                   className="flex items-center h-7 border border-highlight bg-active px-4 text-highlight font-bold hover:bg-highlight hover:text-black transition-colors"
                 >
                   Download Media File

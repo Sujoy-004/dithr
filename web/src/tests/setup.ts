@@ -11,7 +11,12 @@ if (typeof window !== 'undefined') {
     onerror: ((e: any) => void) | null = null;
 
     static isTypeSupported(type: string): boolean {
-      return type.includes('webm');
+      return type.includes('webm') || type.includes('mp4');
+    }
+
+    options?: any;
+    constructor(public stream?: any, options?: any) {
+      this.options = options;
     }
 
     start() {
@@ -21,8 +26,9 @@ if (typeof window !== 'undefined') {
     stop() {
       this.state = 'inactive';
       if (this.ondataavailable) {
+        const mimeType = this.options?.mimeType?.split(';')[0] || 'video/mp4';
         this.ondataavailable({
-          data: new Blob(['mock-webm-chunk'], { type: 'video/webm' }),
+          data: new Blob(['mock-chunk'], { type: mimeType }),
         });
       }
       if (this.onstop) {

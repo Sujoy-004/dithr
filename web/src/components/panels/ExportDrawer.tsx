@@ -4,15 +4,14 @@ import { exportRasterImage } from '../../export/imageExport';
 import { exportAsciiText } from '../../export/textExport';
 import { exportAsciiSvg } from '../../export/svgExport';
 import {
-  recordWebmClip,
-  recordGifClip,
+  recordMp4Clip,
   type ActiveRecordingController,
 } from '../../export/videoExport';
 import ServerExportModal from '../modals/ServerExportModal';
 
 /**
- * Tabbed Export Drawer panel (D-03, D-04, RELY-03, RELY-04).
- * Provides triggers for PNG, JPEG, SVG, TXT, client-side WebM/GIF, and Studio Engine MP4/GIF exports.
+ * Tabbed Export Drawer panel (D-03, RELY-03, HARDEN-VIDEO-EXPORT).
+ * Provides triggers for PNG, JPEG, SVG, TXT, client-side MP4, and Studio Engine MP4 exports.
  */
 export default function ExportDrawer() {
   const mediaType = useStudioStore((s) => s.mediaType);
@@ -47,7 +46,6 @@ export default function ExportDrawer() {
 
   // Server Export Modal state
   const [serverModalOpen, setServerModalOpen] = useState(false);
-  const [serverFormat, setServerFormat] = useState<'mp4' | 'gif'>('mp4');
 
   const hasMedia = mediaType !== null;
 
@@ -154,12 +152,12 @@ export default function ExportDrawer() {
     }
   };
 
-  const handleClientWebm = async () => {
+  const handleClientMp4 = async () => {
     const canvas = getCanvas();
     if (!canvas) return;
     setRecordingBusy(true);
     setRecordProgressPct(0);
-    setRecordProgressMsg('Starting WebM recording...');
+    setRecordProgressMsg('Starting MP4 recording...');
 
     const controller: ActiveRecordingController = {
       cancel: () => {},
@@ -168,8 +166,8 @@ export default function ExportDrawer() {
     recordingControllerRef.current = controller;
 
     try {
-      const filename = getBaseFilename('webm', 'clip');
-      await recordWebmClip(
+      const filename = getBaseFilename('mp4', 'clip');
+      await recordMp4Clip(
         canvas,
         clipDuration,
         (p) => {
@@ -185,48 +183,7 @@ export default function ExportDrawer() {
     } catch (err: any) {
       if (!controller.isCancelled) {
         console.error(err);
-        setToastMsg('WebM recording failed');
-      }
-    } finally {
-      setRecordingBusy(false);
-      setRecordProgressPct(0);
-      setRecordProgressMsg('');
-      recordingControllerRef.current = null;
-      setTimeout(() => setToastMsg(''), 3000);
-    }
-  };
-
-  const handleClientGif = async () => {
-    const canvas = getCanvas();
-    if (!canvas) return;
-    setRecordingBusy(true);
-    setRecordProgressPct(0);
-    setRecordProgressMsg('Recording frames for GIF...');
-
-    const controller: ActiveRecordingController = {
-      cancel: () => {},
-      isCancelled: false,
-    };
-    recordingControllerRef.current = controller;
-
-    try {
-      const filename = getBaseFilename('gif', 'anim');
-      await recordGifClip(
-        canvas,
-        Math.min(clipDuration, 5),
-        10,
-        (p) => {
-          setRecordProgressPct(p.pct);
-          setRecordProgressMsg(p.message);
-        },
-        filename,
-        controller,
-      );
-      setToastMsg(`Downloaded ${filename}!`);
-    } catch (err: any) {
-      if (!controller.isCancelled) {
-        console.error(err);
-        setToastMsg('GIF generation failed');
+        setToastMsg('MP4 recording failed');
       }
     } finally {
       setRecordingBusy(false);
@@ -367,26 +324,15 @@ export default function ExportDrawer() {
               </div>
             </div>
 
-            {/* Client-Side WebM button */}
+            {/* Client-Side MP4 button */}
             <button
               type="button"
               disabled={!hasMedia || busy || recordingBusy}
-              onClick={() => void handleClientWebm()}
+              onClick={() => void handleClientMp4()}
               className="flex h-7 items-center justify-between bg-raised px-2 text-control text-highlight border border-hairline hover:bg-active hover:border-[#a3a3a3] disabled:text-dim disabled:pointer-events-none transition-colors"
             >
-              <span className="font-medium">record WebM clip</span>
-              <span className="tabular-nums text-dim">{clipDuration}s · audio</span>
-            </button>
-
-            {/* Client-Side GIF button */}
-            <button
-              type="button"
-              disabled={!hasMedia || busy || recordingBusy}
-              onClick={() => void handleClientGif()}
-              className="flex h-7 items-center justify-between bg-raised px-2 text-control text-highlight border border-hairline hover:bg-active hover:border-[#a3a3a3] disabled:text-dim disabled:pointer-events-none transition-colors"
-            >
-              <span className="font-medium">record client GIF</span>
-              <span className="tabular-nums text-dim">worker · 480p</span>
+              <span className="font-medium">record MP4 clip</span>
+              <span className="tabular-nums text-dim">{clipDuration}s · HD MP4</span>
             </button>
 
             {/* Active recording progress and cancel */}
@@ -424,25 +370,12 @@ export default function ExportDrawer() {
               type="button"
               disabled={!hasMedia || busy || recordingBusy}
               onClick={() => {
-                setServerFormat('mp4');
                 setServerModalOpen(true);
               }}
               className="flex h-7 items-center justify-between bg-raised px-2 text-control text-highlight border border-hairline hover:bg-active hover:border-[#a3a3a3] disabled:text-dim disabled:pointer-events-none transition-colors"
             >
               <span className="font-medium">export MP4 (H.264 HD)</span>
               <span className="tabular-nums text-dim">1080p · Audio</span>
-            </button>
-            <button
-              type="button"
-              disabled={!hasMedia || busy || recordingBusy}
-              onClick={() => {
-                setServerFormat('gif');
-                setServerModalOpen(true);
-              }}
-              className="flex h-7 items-center justify-between bg-raised px-2 text-control text-highlight border border-hairline hover:bg-active hover:border-[#a3a3a3] disabled:text-dim disabled:pointer-events-none transition-colors"
-            >
-              <span className="font-medium">export High-Res GIF</span>
-              <span className="tabular-nums text-dim">720p · Two-Pass</span>
             </button>
           </div>
         </div>
@@ -462,11 +395,11 @@ export default function ExportDrawer() {
         </div>
       )}
 
-      {/* Server Export Modal per D-01, D-02, D-03, D-04, D-05 */}
+      {/* Server Export Modal per D-01, D-02, D-03, HARDEN-VIDEO-EXPORT */}
       <ServerExportModal
         isOpen={serverModalOpen}
         onClose={() => setServerModalOpen(false)}
-        defaultFormat={serverFormat}
+        defaultFormat="mp4"
         onFallbackToClient={() => {
           setServerModalOpen(false);
           setActiveTab('clip');

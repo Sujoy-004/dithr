@@ -45,23 +45,24 @@ describe('ExportDrawer Component — Client-Side Clip & Export Capabilities', ()
     expect(clipTab).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('provides both in-browser client recording and studio engine cloud export under clip tab', () => {
+  it('provides in-browser MP4 recording and studio engine cloud export under clip tab without GIF options', () => {
     useStudioStore.setState({ mediaType: 'video', mediaUrl: 'blob:video' });
     render(<ExportDrawer />);
 
     // In-browser recording triggers
-    expect(screen.getByRole('button', { name: /record WebM clip/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /record client GIF/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /record MP4 clip/i })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /Clip recording duration/i })).toBeInTheDocument();
 
     // Studio Engine export triggers
     expect(screen.getByRole('button', { name: /export MP4 \(H\.264 HD\)/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /export High-Res GIF/i })).toBeInTheDocument();
+
+    // Verify absence of any GIF buttons
+    expect(screen.queryByRole('button', { name: /gif/i })).not.toBeInTheDocument();
   });
 
-  it('triggers client-side WebM recording when record WebM clip is clicked', async () => {
-    const recordSpy = vi.spyOn(videoExport, 'recordWebmClip').mockResolvedValue(
-      new Blob(['test-webm'], { type: 'video/webm' })
+  it('triggers client-side MP4 recording when record MP4 clip is clicked', async () => {
+    const recordSpy = vi.spyOn(videoExport, 'recordMp4Clip').mockResolvedValue(
+      new Blob(['test-mp4'], { type: 'video/mp4' })
     );
 
     useStudioStore.setState({
@@ -71,7 +72,7 @@ describe('ExportDrawer Component — Client-Side Clip & Export Capabilities', ()
     });
 
     render(<ExportDrawer />);
-    const recordBtn = screen.getByRole('button', { name: /record WebM clip/i });
+    const recordBtn = screen.getByRole('button', { name: /record MP4 clip/i });
     fireEvent.click(recordBtn);
 
     await waitFor(() => {
@@ -79,7 +80,7 @@ describe('ExportDrawer Component — Client-Side Clip & Export Capabilities', ()
     });
 
     const callArgs = recordSpy.mock.calls[0];
-    expect(callArgs[3]).toContain('test_video-clip.webm');
+    expect(callArgs[3]).toContain('test_video-clip.mp4');
   });
 
   it('allows changing clip duration before recording', () => {
@@ -89,6 +90,6 @@ describe('ExportDrawer Component — Client-Side Clip & Export Capabilities', ()
     const fiveSecBtn = screen.getByRole('button', { name: '5s' });
     fireEvent.click(fiveSecBtn);
 
-    expect(screen.getByText(/5s · audio/i)).toBeInTheDocument();
+    expect(screen.getByText(/5s · HD MP4/i)).toBeInTheDocument();
   });
 });
