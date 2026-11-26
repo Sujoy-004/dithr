@@ -3,110 +3,97 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark light" />
-    <title>404 Not Found — RGB ASCII &amp; Retro FX Studio</title>
+    <meta name="color-scheme" content="dark" />
+    <title>Page not found — dithr</title>
     <meta name="robots" content="noindex" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="preload" as="font" href="/fonts/archivo-latin.woff2" type="font/woff2" crossorigin />
     <style>
+      @font-face {
+        font-family: 'Archivo';
+        font-style: normal;
+        font-weight: 100 900;
+        font-display: swap;
+        src: url('/fonts/archivo-latin.woff2') format('woff2');
+      }
       :root {
-        --bg-base: #0a0a0a;
-        --border-hairline: #222222;
-        --text-dim: #777777;
-        --text-default: #888888;
-        --text-highlight: #cccccc;
-        --text-max: #ffffff;
-        --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+        --ink: #0c0d10;
+        --hairline: #262932;
+        --text: #e9ebf0;
+        --muted: #8a8f9c;
       }
       * {
         box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-        border-radius: 0;
       }
       body {
+        margin: 0;
         min-height: 100vh;
-        background-color: var(--bg-base);
-        color: var(--text-default);
-        font-family: var(--font-mono);
-        font-size: 14px;
-        line-height: 1.6;
+        background: var(--ink);
+        color: var(--text);
+        font-family: 'Archivo', system-ui, -apple-system, sans-serif;
         display: flex;
-        flex-direction: column;
-        justify-content: center;
         align-items: center;
+        justify-content: center;
         padding: 24px;
       }
-      .box {
-        max-width: 520px;
+      main {
         width: 100%;
-        border: 1px solid var(--border-hairline);
-        background: #0f0f0f;
-        padding: 24px;
-      }
-      .tag {
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--text-dim);
-        margin-bottom: 12px;
+        max-width: 520px;
+        border-top: 1px solid var(--hairline);
+        border-bottom: 1px solid var(--hairline);
+        padding: 36px 0;
       }
       h1 {
-        font-size: 20px;
-        font-weight: 500;
-        color: var(--text-max);
-        margin-bottom: 12px;
+        margin: 0 0 12px 0;
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.025em;
       }
       p {
-        margin-bottom: 20px;
-        color: var(--text-default);
+        margin: 0 0 28px 0;
+        color: var(--muted);
+        line-height: 1.6;
       }
       .actions {
         display: flex;
-        gap: 12px;
         flex-wrap: wrap;
+        gap: 12px;
       }
       a {
-        display: inline-block;
-        padding: 8px 16px;
-        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 20px;
+        border-radius: 9999px;
+        font-size: 0.9375rem;
+        font-weight: 600;
         text-decoration: none;
-        transition: background 120ms ease, color 120ms ease;
       }
       a.primary {
-        background: var(--text-max);
-        color: var(--bg-base);
-        font-weight: 600;
-      }
-      a.primary:hover {
-        background: var(--text-highlight);
+        background: var(--text);
+        color: var(--ink);
       }
       a.secondary {
-        border: 1px solid var(--border-hairline);
-        color: var(--text-highlight);
+        border: 1px solid var(--hairline);
+        color: var(--text);
       }
-      a.secondary:hover {
-        background: #181818;
-        color: var(--text-max);
+      a:focus-visible {
+        outline: 2px solid var(--text);
+        outline-offset: 3px;
       }
     </style>
   </head>
   <body>
-    <div class="box">
-      <div class="tag">Error 404 // Route Undefined</div>
-      <h1>Requested Target Not Found</h1>
+    <main>
+      <h1>Page not found</h1>
       <p>
-        The path you requested does not exist on this server. Return to the product overview or launch the interactive studio.
+        The route you requested does not exist on dithr. Return to the overview or open the browser studio.
       </p>
       <div class="actions">
-        <a href="/" class="secondary">← Product Overview</a>
-        <a href="/studio/" class="primary">Open Studio →</a>
+        <a href="/" class="secondary">Back to overview</a>
+        <a href="/studio/" class="primary">Open studio</a>
       </div>
-    </div>
+    </main>
   </body>
 </html>
