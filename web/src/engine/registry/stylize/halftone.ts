@@ -4,6 +4,8 @@ import {
   vec2,
   vec4,
   fract,
+  smoothstep,
+  mix,
   float,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
@@ -17,8 +19,9 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Halftone Screen effect definition (D-01, D-05, D-20).
- * Parametric halftone dot screen with rotating grid and Rec. 601 luminance sizing.
+ * Modernized Halftone Screen effect definition (D-01, D-05, D-20).
+ * Parametric rotating halftone dot screen with Rec. 601 luminance sizing,
+ * smoothstep subpixel edge anti-aliasing, and paper backing tone preservation.
  */
 export const halftoneEffect: EffectDefinition = {
   id: 'halftone',
@@ -52,11 +55,20 @@ export const halftoneEffect: EffectDefinition = {
       step: 0.05,
       audioModulatable: true,
     },
+    paperTint: {
+      type: 'float',
+      min: 0.0,
+      max: 1.0,
+      default: 0.15,
+      step: 0.05,
+      audioModulatable: true,
+    },
   },
   buildNode: (inputNode, uniforms) => {
     const frequency = toNode(uniforms.frequency, 30.0).max(1.0);
     const angle = toNode(uniforms.angle, 45.0);
     const dotRadius = toNode(uniforms.dotRadius, 1.0);
+    const paperTint = toNode(uniforms.paperTint, 0.15).clamp(0.0, 1.0);
 
     return Fn(() => {
       const st: any = uv();
@@ -76,10 +88,15 @@ export const halftoneEffect: EffectDefinition = {
       const rgb = baseCol.rgb;
 
       const lum = rec601Luminance(rgb);
-      const targetRadius = lum.mul(dotRadius).mul(0.5).clamp(0.0, 0.7);
+      const targetRadius = lum.mul(dotRadius).mul(0.5).clamp(0.02, 0.7);
 
-      const edge = distToCenter.lessThanEqual(targetRadius).select(float(1.0), float(0.0));
-      const finalRGB = rgb.mul(edge);
+      // Subpixel edge anti-aliasing via smoothstep
+      const feather = float(0.05);
+      const dotAperture = smoothstep(targetRadius.add(feather), targetRadius.sub(feather), distToCenter);
+
+      // Preserved paper backing tint rather than pitch black void
+      const paperBase = rgb.mul(paperTint.mul(0.35));
+      const finalRGB = mix(paperBase, rgb, dotAperture);
 
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();

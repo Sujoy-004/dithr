@@ -3,6 +3,8 @@ import {
   uv,
   vec4,
   fract,
+  smoothstep,
+  mix,
   float,
   vec2,
 } from 'three/tsl';
@@ -17,8 +19,9 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Regular Dot Matrix Screen effect definition (D-01, D-05, D-20).
- * Grid of circular dots sized by Rec. 601 perceived luminance.
+ * Modernized Dot Matrix Screen effect definition (D-01, D-05, D-20).
+ * Grid of circular LED diodes sized by Rec. 601 luminance with smoothstep subpixel anti-aliasing
+ * and preserved background bezel.
  */
 export const dotsEffect: EffectDefinition = {
   id: 'dots',
@@ -44,10 +47,19 @@ export const dotsEffect: EffectDefinition = {
       step: 0.05,
       audioModulatable: true,
     },
+    bezel: {
+      type: 'float',
+      min: 0.0,
+      max: 1.0,
+      default: 0.2,
+      step: 0.05,
+      audioModulatable: true,
+    },
   },
   buildNode: (inputNode, uniforms, env) => {
     const spacing = toNode(uniforms.spacing, 10.0).max(4.0);
     const radius = toNode(uniforms.radius, 1.0);
+    const bezel = toNode(uniforms.bezel, 0.2).clamp(0.0, 1.0);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
@@ -59,10 +71,18 @@ export const dotsEffect: EffectDefinition = {
 
       const baseCol = inputNode;
       const lum = rec601Luminance(baseCol.rgb);
-      const dotR = lum.mul(radius).mul(0.5).min(0.5);
-      const dotMask = dist.lessThanEqual(dotR).select(1.0, 0.0);
+      const dotR = lum.mul(radius).mul(0.5).clamp(0.02, 0.48);
 
-      return vec4(baseCol.rgb.mul(dotMask), baseCol.a ?? float(1.0));
+      // Subpixel anti-aliasing on dot aperture boundaries
+      const feather = float(0.04);
+      const dotMask = smoothstep(dotR.add(feather), dotR.sub(feather), dist);
+
+      // Preserved bezel/ambient tone instead of pitch black void
+      const ambientColor = baseCol.rgb.mul(bezel.mul(0.4));
+      const illuminatedDot = baseCol.rgb.mul(1.15);
+      const finalRGB = mix(ambientColor, illuminatedDot, dotMask);
+
+      return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },
 };

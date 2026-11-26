@@ -1,9 +1,10 @@
 import {
   Fn,
   uv,
-  vec3,
   vec4,
   fract,
+  smoothstep,
+  mix,
   float,
   vec2,
 } from 'three/tsl';
@@ -18,8 +19,9 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Crosshatch engraving effect definition (D-01, D-05, D-20).
- * Multi-angle diagonal line hatching modulated by Rec. 601 perceived luminance.
+ * Modernized Crosshatch Engraving effect definition (D-01, D-05, D-20).
+ * 4-tier progressive hatching angles (45°, -45°, 90°, 0°) with smoothstep anti-aliasing
+ * and paper-tone contrast preservation.
  */
 export const crosshatchEffect: EffectDefinition = {
   id: 'crosshatch',
@@ -39,16 +41,25 @@ export const crosshatchEffect: EffectDefinition = {
     },
     density: {
       type: 'float',
+      min: 0.05,
+      max: 0.8,
+      default: 0.25,
+      step: 0.02,
+      audioModulatable: true,
+    },
+    contrast: {
+      type: 'float',
       min: 0.1,
       max: 1.0,
-      default: 0.2,
+      default: 0.85,
       step: 0.05,
       audioModulatable: true,
     },
   },
   buildNode: (inputNode, uniforms, env) => {
     const spacing = toNode(uniforms.spacing, 6.0).max(1.0);
-    const density = toNode(uniforms.density, 0.2);
+    const density = toNode(uniforms.density, 0.25);
+    const contrast = toNode(uniforms.contrast, 0.85).clamp(0.0, 1.0);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
@@ -58,14 +69,40 @@ export const crosshatchEffect: EffectDefinition = {
       const baseCol = inputNode;
       const lum = rec601Luminance(baseCol.rgb);
 
-      const hatch1 = fract(pixelCoord.x.add(pixelCoord.y).div(spacing)).lessThan(density);
-      const hatch2 = fract(pixelCoord.x.sub(pixelCoord.y).div(spacing)).lessThan(density);
+      // 4 hatching orientations: 45°, -45°, 90° (vertical), 0° (horizontal)
+      const coord1 = pixelCoord.x.add(pixelCoord.y);
+      const coord2 = pixelCoord.x.sub(pixelCoord.y);
+      const coord3 = pixelCoord.x;
+      const coord4 = pixelCoord.y;
 
-      const lineVal = lum.lessThan(0.7).and(hatch1)
-        .or(lum.lessThan(0.4).and(hatch2));
+      const dist1 = fract(coord1.div(spacing)).sub(0.5).abs().mul(2.0);
+      const dist2 = fract(coord2.div(spacing)).sub(0.5).abs().mul(2.0);
+      const dist3 = fract(coord3.div(spacing)).sub(0.5).abs().mul(2.0);
+      const dist4 = fract(coord4.div(spacing)).sub(0.5).abs().mul(2.0);
 
-      const outCol = lineVal.select(vec3(0.0), vec3(1.0));
-      return vec4(outCol, baseCol.a ?? float(1.0));
+      const stroke1 = smoothstep(density, density.sub(0.12).max(0.01), dist1);
+      const stroke2 = smoothstep(density, density.sub(0.12).max(0.01), dist2);
+      const stroke3 = smoothstep(density, density.sub(0.12).max(0.01), dist3);
+      const stroke4 = smoothstep(density, density.sub(0.12).max(0.01), dist4);
+
+      // 4 progressive tiers triggered by Rec. 601 luminance
+      const w1 = smoothstep(float(0.85), float(0.65), lum);
+      const w2 = smoothstep(float(0.65), float(0.45), lum);
+      const w3 = smoothstep(float(0.45), float(0.25), lum);
+      const w4 = smoothstep(float(0.25), float(0.05), lum);
+
+      const totalInk = stroke1.mul(w1)
+        .add(stroke2.mul(w2))
+        .add(stroke3.mul(w3))
+        .add(stroke4.mul(w4))
+        .clamp(0.0, 1.0);
+
+      // Classical banknote engraving paper and ink color mapping
+      const paperColor = baseCol.rgb.mul(0.6).add(0.4);
+      const inkColor = baseCol.rgb.mul(0.08);
+      const finalRGB = mix(paperColor, inkColor, totalInk.mul(contrast));
+
+      return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },
 };

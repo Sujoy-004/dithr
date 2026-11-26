@@ -6,6 +6,8 @@ import {
   floor,
   fract,
   sin,
+  smoothstep,
+  mix,
   float,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
@@ -19,8 +21,9 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Pixel Sort directional glitch streak effect definition (D-01, D-20, D-27).
- * Smears and sorts high-luminance intervals along horizontal or vertical scanlines.
+ * Modernized Pixel Sort directional glitch streak effect definition (D-01, D-20, D-27).
+ * Smears and sorts high-luminance intervals along horizontal or vertical scanlines
+ * with silky streak transitions and organic directional flow.
  */
 export const pixelSortEffect: EffectDefinition = {
   id: 'pixelSort',
@@ -88,7 +91,7 @@ export const pixelSortEffect: EffectDefinition = {
       let bestCol = baseCol;
       let bestLum = baseLum;
 
-      // 8 directional search taps along scanline
+      // Exactly 8 directional search taps along scanline (preserves unit test contract)
       for (let i = 1; i <= 8; i++) {
         const stepOffset = effSpan.mul(float(i / 8.0));
         const samplePx = px.sub(dir.mul(stepOffset));
@@ -104,7 +107,11 @@ export const pixelSortEffect: EffectDefinition = {
         bestLum = takeThis.select(sLum, bestLum);
       }
 
-      const finalRGB = hasSorted.select(bestCol.rgb, baseCol.rgb);
+      // Silky streak edge falloff
+      const streakWeight = smoothstep(effThresh.sub(0.1), effThresh.add(0.1), bestLum);
+      const sortedCol = mix(baseCol.rgb, bestCol.rgb, streakWeight);
+      const finalRGB = hasSorted.select(sortedCol, baseCol.rgb);
+
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },

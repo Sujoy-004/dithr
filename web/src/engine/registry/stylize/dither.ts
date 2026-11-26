@@ -17,8 +17,9 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Bayer 4x4 Dithering effect definition (D-01, D-20, FX-01).
- * Pointwise threshold matrix dithering with quantization steps and spread control.
+ * Modernized Bayer Dithering effect definition (D-01, D-20, FX-01).
+ * Pointwise threshold matrix dithering supporting rich 8x8 and classic 4x4 Bayer matrices
+ * with gamma-correct luminance preservation and quantization steps.
  */
 export const ditherEffect: EffectDefinition = {
   id: 'dither',
@@ -45,13 +46,14 @@ export const ditherEffect: EffectDefinition = {
     },
     matrixType: {
       type: 'select',
-      default: 'bayer4',
-      options: ['bayer4'],
+      default: 'bayer8',
+      options: ['bayer8', 'bayer4'],
     },
   },
   buildNode: (inputNode, uniforms, env) => {
     const colorSteps = toNode(uniforms.colorSteps, 4.0);
     const spread = toNode(uniforms.spread, 0.5);
+    const isBayer4 = uniforms.matrixType === 'bayer4';
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
@@ -59,17 +61,34 @@ export const ditherEffect: EffectDefinition = {
       const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
       const pixelCoord = floor(st.mul(safeRes));
 
-      const x = pixelCoord.x.mod(4.0);
-      const y = pixelCoord.y.mod(4.0);
+      let bVal: any;
 
-      const x2 = floor(x.div(2.0));
-      const y2 = floor(y.div(2.0));
-      const x1 = x.mod(2.0);
-      const y1 = y.mod(2.0);
-
-      const b2 = y1.mul(2.0).add(x1);
-      const b4 = y2.mul(2.0).add(x2);
-      const bVal = b4.mul(4.0).add(b2).div(16.0).sub(0.5);
+      if (isBayer4) {
+        // 4x4 Bayer Matrix
+        const x = pixelCoord.x.mod(4.0);
+        const y = pixelCoord.y.mod(4.0);
+        const x2 = floor(x.div(2.0));
+        const y2 = floor(y.div(2.0));
+        const x1 = x.mod(2.0);
+        const y1 = y.mod(2.0);
+        const b2 = y1.mul(2.0).add(x1);
+        const b4 = y2.mul(2.0).add(x2);
+        bVal = b4.mul(4.0).add(b2).div(16.0).sub(0.5);
+      } else {
+        // 8x8 Bayer Matrix for silky smooth tonal gradients
+        const x = pixelCoord.x.mod(8.0);
+        const y = pixelCoord.y.mod(8.0);
+        const x0 = x.mod(2.0);
+        const y0 = y.mod(2.0);
+        const x1 = floor(x.div(2.0)).mod(2.0);
+        const y1 = floor(y.div(2.0)).mod(2.0);
+        const x2 = floor(x.div(4.0)).mod(2.0);
+        const y2 = floor(y.div(4.0)).mod(2.0);
+        const b0 = y0.mul(2.0).add(x0);
+        const b1 = y1.mul(2.0).add(x1);
+        const b2 = y2.mul(2.0).add(x2);
+        bVal = b2.mul(16.0).add(b1.mul(4.0)).add(b0).div(64.0).sub(0.5);
+      }
 
       const baseCol = inputNode;
       const rgb = baseCol.rgb;

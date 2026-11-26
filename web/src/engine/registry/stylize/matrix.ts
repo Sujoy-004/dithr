@@ -20,8 +20,8 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Matrix Digital Rain effect definition (D-01, D-20, D-27).
- * Phosphor green falling digital code streams with deterministic injected time and seed.
+ * Modernized Matrix Digital Rain effect definition (D-01, D-20, D-27).
+ * Phosphor green falling digital code streams composited over source footage with sourceBlend.
  */
 export const matrixEffect: EffectDefinition = {
   id: 'matrix',
@@ -54,11 +54,20 @@ export const matrixEffect: EffectDefinition = {
       step: 2.0,
       audioModulatable: true,
     },
+    sourceBlend: {
+      type: 'float',
+      min: 0.0,
+      max: 1.0,
+      default: 0.5,
+      step: 0.05,
+      audioModulatable: true,
+    },
   },
   buildNode: (inputNode, uniforms, env) => {
     const speed = toNode(uniforms.speed, 1.0);
     const dropLength = toNode(uniforms.dropLength, 5.0);
     const density = toNode(uniforms.density, 40.0);
+    const sourceBlend = toNode(uniforms.sourceBlend, 0.5).clamp(0.0, 1.0);
     const time = env?.time ?? uniforms.time ?? float(0.0);
     const seed = env?.seed ?? uniforms.seed ?? float(12.9898);
 
@@ -79,11 +88,15 @@ export const matrixEffect: EffectDefinition = {
       const rgb = baseCol.rgb;
       const lum = rec601Luminance(rgb);
 
-      const greenTail = vec3(0.0, 1.0, 0.4).mul(intensity).mul(lum);
+      const greenTail = vec3(0.0, 1.0, 0.4).mul(intensity).mul(lum.add(0.2));
       const whiteHead = vec3(0.8, 1.0, 0.8).mul(intensity.pow(4.0));
       const matrixColor = greenTail.add(whiteHead);
 
-      return vec4(clamp(matrixColor, 0.0, 1.0), baseCol.a ?? float(1.0));
+      // Composite over preserved source video / photo footage
+      const sourcePreserved = rgb.mul(sourceBlend);
+      const finalRGB = clamp(sourcePreserved.add(matrixColor), 0.0, 1.0);
+
+      return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },
 };
