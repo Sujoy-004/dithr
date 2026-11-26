@@ -18,7 +18,7 @@ export interface ParameterSchema {
 
 export type EffectCategory = 'stylize' | 'modulate';
 
-export type BlendMode = 'normal' | 'multiply' | 'screen' | 'add' | 'overlay' | 'softLight';
+export type BlendMode = 'normal' | 'multiply' | 'screen' | 'add';
 
 export interface EffectEnvironment {
   resolution?: any;     // vec2 TSL uniform
@@ -35,7 +35,6 @@ export interface EffectDefinition {
   category: EffectCategory;
   parameters: Record<string, ParameterSchema>;
   requiresPass: boolean;
-  requiresSpatialSampling?: boolean; // True for shaders needing upstream rasterized intermediates
   costWeight: number; // 1 for pointwise, 2 for spatial/convolution, 3 for temporal/heavy
   buildNode: (inputNode: any, uniforms: Record<string, any>, env?: EffectEnvironment) => any;
 }

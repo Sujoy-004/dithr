@@ -1,7 +1,6 @@
 import {
   Fn,
   uv,
-  vec2,
   vec3,
   vec4,
   floor,
@@ -21,16 +20,14 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Modernized Matrix Digital Rain effect definition (D-01, D-20, D-27).
- * Phosphor green falling digital code streams constructing the media on terminal black void.
- * Renders the media to its bone — zero continuous video underneath.
+ * Matrix Digital Rain effect definition (D-01, D-20, D-27).
+ * Phosphor green falling digital code streams with deterministic injected time and seed.
  */
 export const matrixEffect: EffectDefinition = {
   id: 'matrix',
   label: 'Matrix Digital Rain',
   category: 'stylize',
   requiresPass: false,
-  requiresSpatialSampling: true,
   costWeight: 2,
   parameters: {
     speed: {
@@ -69,34 +66,24 @@ export const matrixEffect: EffectDefinition = {
       const st = uv();
       const colCount = density.max(10.0);
       const colIdx = floor(st.x.mul(colCount));
-      const rowIdx = floor(st.y.mul(colCount.mul(1.8)));
 
-      const cellCenterUV: any = vec2(
-        colIdx.add(0.5).div(colCount) as any,
-        rowIdx.add(0.5).div(colCount.mul(1.8)) as any
-      );
-      const sampleFn = (coord: any) => {
-        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
-        if (typeof inputNode === 'function') return inputNode(coord);
-        return inputNode;
-      };
-      const cellCol = sampleFn(cellCenterUV);
-      const cellLum = rec601Luminance(cellCol.rgb);
-
-      // Falling rain stream
+      // Deterministic column pseudorandom offset based on injected seed
       const colRand = fract(sin(colIdx.mul(seed)).mul(43758.5453));
       const effectiveSpeed = speed.mul(colRand.mul(0.5).add(0.75));
+
       const streamY = fract(st.y.add(time.mul(effectiveSpeed)).add(colRand));
       const trail = fract(streamY.mul(dropLength));
-      const streamIntensity = trail.pow(3.0);
+      const intensity = trail.pow(3.0);
 
-      // Green phosphor tail and white glowing head powered by video luminance
-      const greenTail = vec3(0.08, 1.0, 0.35).mul(streamIntensity).mul(cellLum.mul(2.2).add(0.08));
-      const whiteHead = vec3(0.9, 1.0, 0.9).mul(streamIntensity.pow(4.0)).mul(cellLum.mul(2.5));
+      const baseCol = inputNode;
+      const rgb = baseCol.rgb;
+      const lum = rec601Luminance(rgb);
+
+      const greenTail = vec3(0.0, 1.0, 0.4).mul(intensity).mul(lum);
+      const whiteHead = vec3(0.8, 1.0, 0.8).mul(intensity.pow(4.0));
       const matrixColor = greenTail.add(whiteHead);
 
-      const finalRGB = clamp(matrixColor, 0.0, 1.0);
-      return vec4(finalRGB, cellCol.a ?? float(1.0));
+      return vec4(clamp(matrixColor, 0.0, 1.0), baseCol.a ?? float(1.0));
     })();
   },
 };

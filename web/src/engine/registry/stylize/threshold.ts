@@ -2,9 +2,8 @@ import {
   Fn,
   vec3,
   vec4,
-  smoothstep,
-  mix,
   float,
+  mix,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
 import { rec601Luminance } from '../../color/luminance';
@@ -17,8 +16,8 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Modernized High-Contrast Threshold binary effect definition (D-01, D-05, D-20).
- * Quantizes colors into high-contrast print tones with smoothstep edge softening and invert.
+ * High-Contrast Threshold binary effect definition (D-01, D-05, D-20).
+ * Quantizes colors into binary 1-bit black and white based on Rec. 601 luminance.
  */
 export const thresholdEffect: EffectDefinition = {
   id: 'threshold',
@@ -35,14 +34,6 @@ export const thresholdEffect: EffectDefinition = {
       step: 0.01,
       audioModulatable: true,
     },
-    softness: {
-      type: 'float',
-      min: 0.0,
-      max: 0.4,
-      default: 0.05,
-      step: 0.01,
-      audioModulatable: true,
-    },
     invert: {
       type: 'boolean',
       default: false,
@@ -50,24 +41,15 @@ export const thresholdEffect: EffectDefinition = {
   },
   buildNode: (inputNode, uniforms) => {
     const cutoff = toNode(uniforms.cutoff, 0.5);
-    const softness = toNode(uniforms.softness, 0.05).clamp(0.0, 0.4);
     const invert = toNode(uniforms.invert, 0.0);
 
     return Fn(() => {
       const baseCol = inputNode;
       const lum = rec601Luminance(baseCol.rgb);
 
-      const halfSoft = softness.mul(0.5);
-      const low = cutoff.sub(halfSoft).max(0.0);
-      const high = cutoff.add(halfSoft).min(1.0).max(low.add(0.001));
-
-      // Anti-aliased transition edge via smoothstep
-      const factor = smoothstep(low, high, lum);
-      const directedFactor = mix(factor, float(1.0).sub(factor), invert);
-
-      const darkInk = vec3(0.02, 0.02, 0.02);
-      const brightPaper = vec3(0.98, 0.98, 0.98);
-      const finalRGB = mix(darkInk, brightPaper, directedFactor);
+      const isAbove = lum.greaterThanEqual(cutoff);
+      const binColor = isAbove.select(vec3(1.0), vec3(0.0));
+      const finalRGB = mix(binColor, vec3(1.0).sub(binColor), invert);
 
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();

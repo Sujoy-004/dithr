@@ -1,12 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  negotiateVideoMimeType,
-  recordMp4Clip,
-  recordWebmClip,
-  type ActiveRecordingController,
-} from '../export/videoExport';
+import { recordWebmClip, recordGifClip, type ActiveRecordingController } from '../export/videoExport';
 
-describe('videoExport recording utilities (HARDEN-VIDEO-EXPORT, D-03, RELY-03)', () => {
+describe('videoExport recording utilities (D-03, D-04, RELY-03, RELY-04)', () => {
   function createMockCanvas(width = 800, height = 600): HTMLCanvasElement {
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -19,49 +14,24 @@ describe('videoExport recording utilities (HARDEN-VIDEO-EXPORT, D-03, RELY-03)',
     return canvas;
   }
 
-  it('negotiateVideoMimeType prioritizes mp4 codecs before webm', () => {
-    const { mimeType, isMp4 } = negotiateVideoMimeType();
-    expect(mimeType).toContain('mp4');
-    expect(isMp4).toBe(true);
-  });
-
-  it('recordMp4Clip configures 8 Mbps high bitrate and returns valid MP4 blob', async () => {
+  it('recordWebmClip records canvas and returns a valid WebM blob', async () => {
     const canvas = createMockCanvas();
     const progressMsgs: string[] = [];
 
-    // Spy on MediaRecorder constructor to verify bitrate configuration
-    let capturedOptions: MediaRecorderOptions | undefined;
-    const OriginalMediaRecorder = window.MediaRecorder;
-    class SpiedMediaRecorder extends (OriginalMediaRecorder as any) {
-      constructor(stream: any, options?: MediaRecorderOptions) {
-        super(stream, options);
-        capturedOptions = options;
-      }
-    }
-    SpiedMediaRecorder.isTypeSupported = OriginalMediaRecorder.isTypeSupported;
-    window.MediaRecorder = SpiedMediaRecorder as any;
+    const blob = await recordWebmClip(
+      canvas,
+      0.2, // short duration for fast test
+      (p) => progressMsgs.push(p.message),
+      'test-clip.webm',
+      true
+    );
 
-    try {
-      const blob = await recordMp4Clip(
-        canvas,
-        0.2, // short duration for fast test
-        (p) => progressMsgs.push(p.message),
-        'test-clip.mp4',
-        true
-      );
-
-      expect(blob).toBeDefined();
-      expect(blob.type).toBe('video/mp4');
-      expect(progressMsgs.length).toBeGreaterThan(0);
-      expect(capturedOptions).toBeDefined();
-      expect(capturedOptions?.videoBitsPerSecond).toBe(8_000_000);
-      expect(capturedOptions?.audioBitsPerSecond).toBe(128_000);
-    } finally {
-      window.MediaRecorder = OriginalMediaRecorder;
-    }
+    expect(blob).toBeDefined();
+    expect(blob.type).toBe('video/webm');
+    expect(progressMsgs.length).toBeGreaterThan(0);
   });
 
-  it('recordMp4Clip respects cancellation controller and stops recording', async () => {
+  it('recordWebmClip respects cancellation controller', async () => {
     const canvas = createMockCanvas();
     const controller: ActiveRecordingController = {
       cancel: () => {},
@@ -74,27 +44,32 @@ describe('videoExport recording utilities (HARDEN-VIDEO-EXPORT, D-03, RELY-03)',
     }, 50);
 
     await expect(
-      recordMp4Clip(
+      recordWebmClip(
         canvas,
         2,
         undefined,
-        'test-cancel.mp4',
+        'test-cancel.webm',
         false,
         null,
         controller
       )
-    ).rejects.toThrow('MP4 recording cancelled by user.');
+    ).rejects.toThrow('WebM recording cancelled by user.');
   });
 
-  it('recordWebmClip compatibility wrapper delegates to recordMp4Clip', async () => {
-    const canvas = createMockCanvas();
-    const blob = await recordWebmClip(
+  it('recordGifClip clamps canvas dimensions to 480px and outputs gif blob', async () => {
+    const canvas = createMockCanvas(1920, 1080);
+    const progressCalls: number[] = [];
+
+    const blob = await recordGifClip(
       canvas,
-      0.1,
-      undefined,
-      'compat-clip.mp4',
-      false
+      1, // 1 second
+      5, // 5 fps
+      (p) => progressCalls.push(p.pct),
+      'test-clip.gif'
     );
+
     expect(blob).toBeDefined();
+    expect(blob.type).toBe('image/gif');
+    expect(progressCalls.length).toBeGreaterThan(0);
   });
 });

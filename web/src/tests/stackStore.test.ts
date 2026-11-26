@@ -3,29 +3,32 @@ import { useStudioStore, DEFAULT_INITIAL_STACK } from '../store/useStudioStore';
 
 describe('useStudioStore effect stack slice (D-02, D-03, D-04, FX-01)', () => {
   beforeEach(() => {
-    // Reset store to default clean state (empty stack = pristine media passthrough)
+    // Reset store to default clean state
     useStudioStore.setState({
       activeStack: structuredClone(DEFAULT_INITIAL_STACK),
-      selectedPassId: null,
-      effect: 'dither',
+      selectedPassId: DEFAULT_INITIAL_STACK[0].instanceId,
+      effect: 'ascii',
     });
   });
 
-  it('initializes with default empty active stack (pristine media passthrough)', () => {
+  it('initializes with default active stack containing one ascii pass', () => {
     const state = useStudioStore.getState();
-    expect(state.activeStack.length).toBe(0);
-    expect(state.selectedPassId).toBeNull();
-    expect(state.effect).toBe('dither');
+    expect(state.activeStack.length).toBe(1);
+    expect(state.activeStack[0].effectId).toBe('ascii');
+    expect(state.activeStack[0].enabled).toBe(true);
+    expect(state.activeStack[0].intensity).toBe(1.0);
+    expect(state.activeStack[0].blendMode).toBe('normal');
+    expect(state.selectedPassId).toBe(state.activeStack[0].instanceId);
   });
 
-  it('addEffect appends a pass with default parameters to empty stack and sets it as selected', () => {
+  it('addEffect appends a pass with default parameters and sets it as selected', () => {
     const { addEffect } = useStudioStore.getState();
     addEffect('dither');
 
     const state = useStudioStore.getState();
-    expect(state.activeStack.length).toBe(1);
+    expect(state.activeStack.length).toBe(2);
 
-    const ditherPass = state.activeStack[0];
+    const ditherPass = state.activeStack[1];
     expect(ditherPass.effectId).toBe('dither');
     expect(ditherPass.enabled).toBe(true);
     expect(ditherPass.intensity).toBe(1.0);
@@ -35,45 +38,40 @@ describe('useStudioStore effect stack slice (D-02, D-03, D-04, FX-01)', () => {
     expect(state.selectedPassId).toBe(ditherPass.instanceId);
   });
 
-  it('allows stacking multiple shaders seamlessly (e.g. VHS on top of Dither)', () => {
-    const { addEffect } = useStudioStore.getState();
-    addEffect('dither');
-    addEffect('vhs');
-
-    const state = useStudioStore.getState();
-    expect(state.activeStack.length).toBe(2);
-    expect(state.activeStack[0].effectId).toBe('dither');
-    expect(state.activeStack[1].effectId).toBe('vhs');
-    expect(state.selectedPassId).toBe(state.activeStack[1].instanceId);
-  });
-
   it('addEffect allows overriding initial parameters', () => {
     const { addEffect } = useStudioStore.getState();
     addEffect('halftone', { frequency: 120, angle: 60 });
 
     const state = useStudioStore.getState();
-    const halftonePass = state.activeStack[0];
+    const halftonePass = state.activeStack[1];
     expect(halftonePass.effectId).toBe('halftone');
     expect(halftonePass.parameters.frequency).toBe(120);
     expect(halftonePass.parameters.angle).toBe(60);
     expect(halftonePass.parameters.dotRadius).toBe(1.0); // default preserved
   });
 
-  it('removeEffect removes pass and falls back selectedPassId to previous pass or null', () => {
+  it('removeEffect removes pass and falls back selectedPassId to previous pass', () => {
     const { addEffect, removeEffect } = useStudioStore.getState();
     addEffect('dither');
     addEffect('halftone');
 
     let state = useStudioStore.getState();
-    expect(state.activeStack.length).toBe(2);
+    expect(state.activeStack.length).toBe(3);
     const pass0 = state.activeStack[0].instanceId;
     const pass1 = state.activeStack[1].instanceId;
+    const pass2 = state.activeStack[2].instanceId;
+
+    // Selected is pass2. Removing pass2 should fallback to pass1.
+    removeEffect(pass2);
+    state = useStudioStore.getState();
+    expect(state.activeStack.length).toBe(2);
+    expect(state.activeStack.map((p) => p.instanceId)).toEqual([pass0, pass1]);
+    expect(state.selectedPassId).toBe(pass1);
 
     // Selected is pass1. Removing pass1 should fallback to pass0.
     removeEffect(pass1);
     state = useStudioStore.getState();
     expect(state.activeStack.length).toBe(1);
-    expect(state.activeStack.map((p) => p.instanceId)).toEqual([pass0]);
     expect(state.selectedPassId).toBe(pass0);
 
     // Removing pass0 leaves stack empty and selectedPassId null.
@@ -87,7 +85,6 @@ describe('useStudioStore effect stack slice (D-02, D-03, D-04, FX-01)', () => {
     const { addEffect, reorderStack } = useStudioStore.getState();
     addEffect('dither');
     addEffect('halftone');
-    addEffect('matrix');
 
     const beforeState = useStudioStore.getState();
     const stackBefore = beforeState.activeStack;
@@ -109,8 +106,7 @@ describe('useStudioStore effect stack slice (D-02, D-03, D-04, FX-01)', () => {
   });
 
   it('toggleEffect flips enabled state without mutating original pass', () => {
-    const { addEffect, toggleEffect } = useStudioStore.getState();
-    addEffect('dither');
+    const { toggleEffect } = useStudioStore.getState();
     const passId = useStudioStore.getState().activeStack[0].instanceId;
     const originalPass = useStudioStore.getState().activeStack[0];
 
@@ -129,15 +125,15 @@ describe('useStudioStore effect stack slice (D-02, D-03, D-04, FX-01)', () => {
     const { addEffect, duplicateEffect, updatePassParam } = useStudioStore.getState();
     addEffect('dither');
 
-    const originalPass = useStudioStore.getState().activeStack[0];
+    const originalPass = useStudioStore.getState().activeStack[1];
     updatePassParam(originalPass.instanceId, 'colorSteps', 8);
 
     duplicateEffect(originalPass.instanceId);
 
     const state = useStudioStore.getState();
-    expect(state.activeStack.length).toBe(2);
+    expect(state.activeStack.length).toBe(3);
 
-    const clonedPass = state.activeStack[1];
+    const clonedPass = state.activeStack[2];
     expect(clonedPass.instanceId).not.toBe(originalPass.instanceId);
     expect(clonedPass.effectId).toBe('dither');
     expect(clonedPass.parameters.colorSteps).toBe(8);
@@ -148,8 +144,7 @@ describe('useStudioStore effect stack slice (D-02, D-03, D-04, FX-01)', () => {
   });
 
   it('setEffectIntensity clamps value between 0.0 and 1.0', () => {
-    const { addEffect, setEffectIntensity } = useStudioStore.getState();
-    addEffect('dither');
+    const { setEffectIntensity } = useStudioStore.getState();
     const passId = useStudioStore.getState().activeStack[0].instanceId;
 
     setEffectIntensity(passId, 0.45);
@@ -162,9 +157,8 @@ describe('useStudioStore effect stack slice (D-02, D-03, D-04, FX-01)', () => {
     expect(useStudioStore.getState().activeStack[0].intensity).toBe(1.0);
   });
 
-  it('setEffectBlendMode updates blend mode including overlay and softLight', () => {
-    const { addEffect, setEffectBlendMode } = useStudioStore.getState();
-    addEffect('dither');
+  it('setEffectBlendMode updates blend mode', () => {
+    const { setEffectBlendMode } = useStudioStore.getState();
     const passId = useStudioStore.getState().activeStack[0].instanceId;
 
     setEffectBlendMode(passId, 'multiply');
@@ -175,21 +169,15 @@ describe('useStudioStore effect stack slice (D-02, D-03, D-04, FX-01)', () => {
 
     setEffectBlendMode(passId, 'add');
     expect(useStudioStore.getState().activeStack[0].blendMode).toBe('add');
-
-    setEffectBlendMode(passId, 'overlay');
-    expect(useStudioStore.getState().activeStack[0].blendMode).toBe('overlay');
-
-    setEffectBlendMode(passId, 'softLight');
-    expect(useStudioStore.getState().activeStack[0].blendMode).toBe('softLight');
   });
 
   it('updatePassParam updates specific parameter value', () => {
     const { addEffect, updatePassParam } = useStudioStore.getState();
     addEffect('dither');
-    const ditherPass = useStudioStore.getState().activeStack[0];
+    const ditherPass = useStudioStore.getState().activeStack[1];
 
     updatePassParam(ditherPass.instanceId, 'spread', 1.25);
-    const updated = useStudioStore.getState().activeStack[0];
+    const updated = useStudioStore.getState().activeStack[1];
     expect(updated.parameters.spread).toBe(1.25);
   });
 
@@ -197,7 +185,7 @@ describe('useStudioStore effect stack slice (D-02, D-03, D-04, FX-01)', () => {
     const { addEffect, setSingleEffectFastPath } = useStudioStore.getState();
     addEffect('dither');
     addEffect('halftone');
-    expect(useStudioStore.getState().activeStack.length).toBe(2);
+    expect(useStudioStore.getState().activeStack.length).toBe(3);
 
     setSingleEffectFastPath('matrix');
 

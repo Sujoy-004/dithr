@@ -17,36 +17,27 @@ export interface ActiveRecordingController {
 }
 
 /**
- * Negotiate optimal supported video container and codec mime type.
- * Prioritizes native MP4 (AVC1 / H.264) for high-frequency shader fidelity,
- * falling back to WebM (VP9/VP8) on platforms without native MP4 MediaRecorder support.
+ * Negotiate optimal supported WebM container mime type per D-03.
  */
-export function negotiateVideoMimeType(): { mimeType: string; isMp4: boolean } {
+function negotiateWebmMimeType(): string {
   const candidates = [
-    'video/mp4;codecs=avc1,mp4a.40.2',
-    'video/mp4;codecs=avc1',
-    'video/mp4',
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp9',
     'video/webm',
   ];
   for (const candidate of candidates) {
     if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(candidate)) {
-      return {
-        mimeType: candidate,
-        isMp4: candidate.startsWith('video/mp4'),
-      };
+      return candidate;
     }
   }
-  return { mimeType: '', isMp4: false };
+  return '';
 }
 
 /**
- * Records a crisp video clip directly from canvas with native MP4 negotiation,
- * 8 Mbps high bitrate (preserving high-frequency dither dots, halftone grids, and ASCII character edges),
- * and audio track multiplexing per HARDEN-VIDEO-EXPORT.
+ * Records a short WebM video clip directly from canvas with audio track multiplexing per D-03 and RELY-03.
  */
-export async function recordMp4Clip(
+export async function recordWebmClip(
   canvas: HTMLCanvasElement,
   durationSeconds = 3,
   onProgress?: (progress: VideoRecordProgress) => void,
@@ -60,10 +51,10 @@ export async function recordMp4Clip(
     await resumeAudioContext();
   }
 
-  // 2. Obtain canvas video stream at 30 fps
+  // 2. Obtain canvas video stream
   const stream = canvas.captureStream(30);
 
-  // 3. Audio track acquisition and cloning
+  // 3. Audio track acquisition and cloning per D-03 & RELY-03
   let clonedVideoAudioTrack: MediaStreamTrack | null = null;
   let clonedCamAudioTrack: MediaStreamTrack | null = null;
 
@@ -78,7 +69,7 @@ export async function recordMp4Clip(
           stream.addTrack(clonedVideoAudioTrack);
         }
       } catch (err) {
-        console.warn('[recordMp4Clip] Could not attach video audio track:', err);
+        console.warn('[recordWebmClip] Could not attach video audio track:', err);
       }
     }
 
@@ -111,17 +102,9 @@ export async function recordMp4Clip(
     }
   };
 
-  // 4. Codec negotiation & 8 Mbps high bitrate
-  const { mimeType, isMp4 } = negotiateVideoMimeType();
-  const recorderOptions: MediaRecorderOptions = {
-    videoBitsPerSecond: 8_000_000, // 8 Mbps high bitrate to preserve high-frequency shader details
-    audioBitsPerSecond: 128_000,
-  };
-  if (mimeType) {
-    recorderOptions.mimeType = mimeType;
-  }
-
-  const recorder = new MediaRecorder(stream, recorderOptions);
+  // 4. Codec negotiation
+  const mimeType = negotiateWebmMimeType();
+  const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
   const chunks: Blob[] = [];
 
   return new Promise((resolve, reject) => {
@@ -146,7 +129,7 @@ export async function recordMp4Clip(
       cancelController.cancel = () => {
         cancelController.isCancelled = true;
         stopRecording();
-        reject(new Error('MP4 recording cancelled by user.'));
+        reject(new Error('WebM recording cancelled by user.'));
       };
     }
 
@@ -159,10 +142,8 @@ export async function recordMp4Clip(
       if (cancelController?.isCancelled) {
         return;
       }
-      const outputMime = isMp4 ? 'video/mp4' : (mimeType || 'video/webm');
-      const blob = new Blob(chunks, { type: outputMime });
-      const defaultExt = isMp4 ? 'mp4' : 'webm';
-      const outName = filename ?? `retro-clip-${Date.now()}.${defaultExt}`;
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      const outName = filename ?? `retro-clip-${Date.now()}.webm`;
       downloadBlob(blob, outName);
       if (onProgress) onProgress({ pct: 100, message: 'Done' });
       resolve(blob);
@@ -184,7 +165,7 @@ export async function recordMp4Clip(
       }
       const elapsed = (performance.now() - start) / 1000;
       const pct = Math.min(Math.round((elapsed / durationSeconds) * 100), 99);
-      if (onProgress) onProgress({ pct, message: `Recording MP4 Clip... ${pct}%` });
+      if (onProgress) onProgress({ pct, message: `Recording WebM Clip... ${pct}%` });
 
       if (elapsed >= durationSeconds) {
         stopRecording();
@@ -194,24 +175,140 @@ export async function recordMp4Clip(
 }
 
 /**
- * Compatibility wrapper for recordWebmClip, delegating to recordMp4Clip.
+ * Records an animated GIF client-side offloaded to a Web Worker per D-04 and RELY-04.
+ * Clamps maximum dimension to 480px to prevent browser memory exhaustion.
  */
-export async function recordWebmClip(
+export async function recordGifClip(
   canvas: HTMLCanvasElement,
-  durationSeconds = 3,
+  durationSeconds = 2,
+  fps = 10,
   onProgress?: (progress: VideoRecordProgress) => void,
   filename?: string,
-  includeAudio = true,
-  videoEl?: HTMLVideoElement | null,
   cancelController?: ActiveRecordingController
 ): Promise<Blob> {
-  return recordMp4Clip(
-    canvas,
-    durationSeconds,
-    onProgress,
-    filename,
-    includeAudio,
-    videoEl,
-    cancelController
-  );
+  const safeDuration = Math.min(Math.max(durationSeconds, 1), 5); // 1..5 seconds max
+  const totalFrames = Math.round(safeDuration * fps);
+  const frameIntervalMs = 1000 / fps;
+
+  // Clamp output dimensions to max 480px on the longest edge per D-04
+  const maxEdge = 480;
+  let resizeWidth = canvas.width;
+  let resizeHeight = canvas.height;
+  if (resizeWidth > maxEdge || resizeHeight > maxEdge) {
+    if (resizeWidth >= resizeHeight) {
+      resizeHeight = Math.round((resizeHeight * maxEdge) / resizeWidth);
+      resizeWidth = maxEdge;
+    } else {
+      resizeWidth = Math.round((resizeWidth * maxEdge) / resizeHeight);
+      resizeHeight = maxEdge;
+    }
+  }
+
+  // Spawn dedicated Vite Web Worker
+  const worker = new Worker(new URL('./gif.worker.ts', import.meta.url), {
+    type: 'module',
+  });
+
+  worker.postMessage({
+    type: 'INIT',
+    width: resizeWidth,
+    height: resizeHeight,
+    fps,
+  });
+
+  let isTerminated = false;
+  const terminateWorker = () => {
+    if (!isTerminated) {
+      isTerminated = true;
+      try {
+        worker.postMessage({ type: 'CANCEL' });
+        worker.terminate();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  if (cancelController) {
+    cancelController.cancel = () => {
+      cancelController.isCancelled = true;
+      terminateWorker();
+    };
+  }
+
+  return new Promise(async (resolve, reject) => {
+    worker.onmessage = (e: MessageEvent) => {
+      const data = e.data;
+      if (!data) return;
+
+      if (data.type === 'PROGRESS') {
+        const workerPct = Math.round(data.pct);
+        if (onProgress) {
+          onProgress({
+            pct: workerPct,
+            message: `Worker encoding GIF... ${workerPct}% (Quantizing 256 colors...)`,
+          });
+        }
+      } else if (data.type === 'COMPLETE') {
+        const blob = new Blob([data.buffer], { type: 'image/gif' });
+        const outName = filename ?? `retro-clip-${Date.now()}.gif`;
+        downloadBlob(blob, outName);
+        terminateWorker();
+        if (onProgress) onProgress({ pct: 100, message: 'Done' });
+        resolve(blob);
+      }
+    };
+
+    worker.onerror = (err) => {
+      terminateWorker();
+      reject(err);
+    };
+
+    try {
+      // Sample distinct animation frames synchronized to render ticks
+      for (let f = 0; f < totalFrames; f++) {
+        if (cancelController?.isCancelled) {
+          terminateWorker();
+          reject(new Error('GIF recording cancelled by user.'));
+          return;
+        }
+
+        // Wait for next animation frame for render-synchronized sampling
+        await new Promise<void>((r) => {
+          requestAnimationFrame(() => r());
+        });
+
+        const bitmap = await createImageBitmap(canvas, {
+          resizeWidth,
+          resizeHeight,
+        });
+
+        worker.postMessage(
+          {
+            type: 'FRAME',
+            bitmap,
+            frameIndex: f,
+            totalFrames,
+          },
+          [bitmap]
+        );
+
+        const samplePct = Math.round(((f + 1) / totalFrames) * 100);
+        if (onProgress) {
+          onProgress({
+            pct: Math.round(samplePct * 0.5),
+            message: `Sampling frames... ${samplePct}% (${f + 1}/${totalFrames} distinct ticks)`,
+          });
+        }
+
+        await new Promise((r) => setTimeout(r, frameIntervalMs));
+      }
+
+      // Signal worker that all frames have been sent
+      worker.postMessage({ type: 'FINISH' });
+    } catch (err) {
+      terminateWorker();
+      reject(err);
+    }
+  });
 }

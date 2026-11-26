@@ -6,8 +6,6 @@ import {
   floor,
   fract,
   sin,
-  smoothstep,
-  mix,
   float,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
@@ -21,16 +19,14 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Modernized Pixel Sort directional glitch streak effect definition (D-01, D-20, D-27).
- * Smears and sorts high-luminance intervals along horizontal or vertical scanlines
- * with silky streak transitions and organic directional flow.
+ * Pixel Sort directional glitch streak effect definition (D-01, D-20, D-27).
+ * Smears and sorts high-luminance intervals along horizontal or vertical scanlines.
  */
 export const pixelSortEffect: EffectDefinition = {
   id: 'pixelSort',
   label: 'Pixel Sort',
   category: 'stylize',
   requiresPass: false,
-  requiresSpatialSampling: true,
   costWeight: 2,
   parameters: {
     threshold: {
@@ -58,7 +54,7 @@ export const pixelSortEffect: EffectDefinition = {
   },
   buildNode: (inputNode, uniforms, env) => {
     const threshold = toNode(uniforms.threshold, 0.5);
-    const sortSpan = toNode(uniforms.sortSpan, 20.0).max(2.0);
+    const sortSpan = toNode(uniforms.sortSpan, 20.0);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
     const time = env?.time ?? uniforms.time ?? float(0.0);
     const seed = env?.seed ?? uniforms.seed ?? float(12.9898);
@@ -67,8 +63,7 @@ export const pixelSortEffect: EffectDefinition = {
 
     return Fn(() => {
       const st = uv();
-      const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
-      const px = st.mul(safeRes);
+      const px = st.mul(resolution);
 
       const sampleFn = (coord: any) => {
         if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
@@ -91,11 +86,10 @@ export const pixelSortEffect: EffectDefinition = {
       let bestCol = baseCol;
       let bestLum = baseLum;
 
-      // Exactly 8 directional search taps along scanline (preserves unit test contract)
-      for (let i = 1; i <= 8; i++) {
-        const stepOffset = effSpan.mul(float(i / 8.0));
+      for (let i = 1; i <= 6; i++) {
+        const stepOffset = effSpan.mul(float(i / 6.0));
         const samplePx = px.sub(dir.mul(stepOffset));
-        const sampleUV = samplePx.div(safeRes).clamp(0.0, 1.0);
+        const sampleUV = samplePx.div(resolution).clamp(0.0, 1.0);
         const sCol = sampleFn(sampleUV);
         const sLum = rec601Luminance(sCol.rgb);
 
@@ -107,11 +101,7 @@ export const pixelSortEffect: EffectDefinition = {
         bestLum = takeThis.select(sLum, bestLum);
       }
 
-      // Silky streak edge falloff
-      const streakWeight = smoothstep(effThresh.sub(0.1), effThresh.add(0.1), bestLum);
-      const sortedCol = mix(baseCol.rgb, bestCol.rgb, streakWeight);
-      const finalRGB = hasSorted.select(sortedCol, baseCol.rgb);
-
+      const finalRGB = hasSorted.select(bestCol.rgb, baseCol.rgb);
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },

@@ -74,8 +74,7 @@ export const asciiEffect: EffectDefinition = {
 
     return Fn(() => {
       const st = uv();
-      const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
-      const pixelCoord = st.mul(safeRes);
+      const pixelCoord = st.mul(resolution);
 
       const cellW = cellScale.mul(charAspect).max(1.0);
       const cellH = cellScale.max(1.0);
@@ -83,15 +82,16 @@ export const asciiEffect: EffectDefinition = {
 
       const cellIndex = floor(pixelCoord.div(cellSize));
       const cellCenterPx = cellIndex.mul(cellSize).add(cellSize.mul(0.5));
-      const cellCenterUV = cellCenterPx.div(safeRes).clamp(0.0, 1.0);
+      const cellCenterUV = cellCenterPx.div(resolution);
 
-      const sampleFn = (coord: any) => {
-        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
-        if (typeof inputNode === 'function') return inputNode(coord);
-        return inputNode;
-      };
-
-      const sampledColor = sampleFn(cellCenterUV);
+      let sampledColor: any;
+      if (typeof env?.sampleAt === 'function') {
+        sampledColor = env.sampleAt(cellCenterUV);
+      } else if (typeof inputNode === 'function') {
+        sampledColor = inputNode(cellCenterUV);
+      } else {
+        sampledColor = inputNode;
+      }
       const rgb = sampledColor.rgb;
 
       // Rec. 601 perceived luminance (0.299*R + 0.587*G + 0.114*B) - matches src/renderer.py

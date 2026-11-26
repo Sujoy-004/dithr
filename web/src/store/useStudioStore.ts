@@ -172,7 +172,21 @@ export const DEFAULT_EFFECT_PARAMS: EffectParams = {
   vhsCurvature: 0.0,
 };
 
-export const DEFAULT_INITIAL_STACK: ActiveEffectPass[] = [];
+export const DEFAULT_INITIAL_STACK: ActiveEffectPass[] = [
+  {
+    instanceId: 'initial-ascii',
+    effectId: 'ascii',
+    enabled: true,
+    intensity: 1.0,
+    blendMode: 'normal',
+    parameters: {
+      cellScale: 12,
+      charSpacing: 0,
+      charAspect: 0.5,
+      rampLength: 10,
+    },
+  },
+];
 
 export const DEFAULT_AUDIO_STATE: AudioState = {
   enabled: false,
@@ -325,13 +339,13 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   setPan: (pan) => set({ pan }),
   resetHUD: () => set({ zoom: DEFAULT_ZOOM, pan: DEFAULT_PAN }),
 
-  effect: 'dither',
+  effect: 'ascii',
   setEffect: (effect) => {
     get().setSingleEffectFastPath(effect);
   },
 
   activeStack: DEFAULT_INITIAL_STACK,
-  selectedPassId: null,
+  selectedPassId: 'initial-ascii',
 
   setSelectedPassId: (selectedPassId) => set({ selectedPassId }),
 
@@ -359,7 +373,6 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     set({
       activeStack: next,
       selectedPassId: newPass.instanceId,
-      effect: effectId as EffectMode,
     });
   },
 

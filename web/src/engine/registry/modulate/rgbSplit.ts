@@ -70,7 +70,6 @@ export const rgbSplitEffect: EffectDefinition = {
   label: 'RGB Split',
   category: 'modulate',
   requiresPass: false,
-  requiresSpatialSampling: true,
   costWeight: 1,
   parameters: {
     masterAmount: {
@@ -166,10 +165,9 @@ export const rgbSplitEffect: EffectDefinition = {
       const netGreenOffset: any = vec2(greenOffsetX, greenOffsetY);
       const netBlueOffset: any = vec2(blueOffsetX, blueOffsetY).sub(masterVec);
 
-      const safeRes: any = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
-      const uvR: any = st.add(netRedOffset.div(safeRes)).clamp(0.0, 1.0);
-      const uvG: any = st.add(netGreenOffset.div(safeRes)).clamp(0.0, 1.0);
-      const uvB: any = st.add(netBlueOffset.div(safeRes)).clamp(0.0, 1.0);
+      const uvR: any = st.add(netRedOffset.div(resolution)).clamp(0.0, 1.0);
+      const uvG: any = st.add(netGreenOffset.div(resolution)).clamp(0.0, 1.0);
+      const uvB: any = st.add(netBlueOffset.div(resolution)).clamp(0.0, 1.0);
 
       const sampleFn = (coord: any) => {
         if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);

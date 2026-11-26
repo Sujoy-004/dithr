@@ -52,20 +52,20 @@ export const blockifyEffect: EffectDefinition = {
 
     return Fn(() => {
       const st = uv();
-      const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
-      const pixelCoord = st.mul(safeRes);
+      const pixelCoord = st.mul(resolution);
       const b = blockSize.max(2.0);
       const cellCoord = floor(pixelCoord.div(b));
       const cellCenterPx = cellCoord.mul(b).add(b.mul(0.5));
-      const cellCenterUV = cellCenterPx.div(safeRes).clamp(0.0, 1.0);
+      const cellCenterUV = cellCenterPx.div(resolution);
 
-      const sampleFn = (coord: any) => {
-        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
-        if (typeof inputNode === 'function') return inputNode(coord);
-        return inputNode;
-      };
-
-      const baseCol = sampleFn(cellCenterUV);
+      let baseCol: any;
+      if (typeof env?.sampleAt === 'function') {
+        baseCol = env.sampleAt(cellCenterUV);
+      } else if (typeof inputNode === 'function') {
+        baseCol = inputNode(cellCenterUV);
+      } else {
+        baseCol = inputNode;
+      }
 
       const cellFrac = fract(pixelCoord.div(b));
       const borderX = cellFrac.x.lessThan(b.reciprocal()).or(cellFrac.x.greaterThan(float(1.0).sub(b.reciprocal())));

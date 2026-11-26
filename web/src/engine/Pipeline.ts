@@ -214,9 +214,6 @@ export class StudioPipeline {
     tex.magFilter = THREE.LinearFilter;
     tex.generateMipmaps = false;
     this.sourceTextureNode = texture(tex);
-    if (!this.sourceTextureNode.uv && typeof this.sourceTextureNode.sample === 'function') {
-      this.sourceTextureNode.uv = (c: any) => this.sourceTextureNode.sample(c);
-    }
 
     // Clear pipeline cache so new source texture node is bound
     this.disposePipelineCache();
@@ -391,125 +388,6 @@ export class StudioPipeline {
     this.displayMesh.material = this.currentPipeline.finalMaterial;
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.scene, this.camera);
-  }
-
-  /**
-   * Captures the full-resolution rendered frame into an image Blob (PNG or JPEG)
-   * by rendering to an offscreen RenderTarget and reading back the pixel buffer (MEDIA-03).
-   */
-  async captureImageBlob(
-    format: 'png' | 'jpeg' = 'png',
-    quality = 0.95,
-    exportWidth?: number,
-    exportHeight?: number
-  ): Promise<Blob> {
-    if (this.isDisposed || !this.renderer) {
-      throw new Error('Pipeline not initialized or disposed');
-    }
-
-    const w = exportWidth && exportWidth > 0 ? exportWidth : this.width;
-    const h = exportHeight && exportHeight > 0 ? exportHeight : this.height;
-
-    const captureTarget = new THREE.RenderTarget(w, h, {
-      format: THREE.RGBAFormat,
-      type: THREE.UnsignedByteType,
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      depthBuffer: false,
-      stencilBuffer: false,
-    });
-
-    const origResolution = this.resolutionUniform.value.clone();
-    this.resolutionUniform.value.set(w, h);
-
-    try {
-      this.passPool.resetFrame();
-
-      if (!this.currentPipeline || this.currentPipeline.stages.length <= 1) {
-        this.displayMesh.material = this.currentPipeline
-          ? this.currentPipeline.finalMaterial
-          : this.fallbackMaterial;
-        this.renderer.setRenderTarget(captureTarget);
-        this.renderer.render(this.scene, this.camera);
-      } else {
-        const stages = this.currentPipeline.stageDescriptors;
-        const stageCount = stages.length;
-
-        for (let i = 0; i < stageCount - 1; i++) {
-          const stageDesc = stages[i];
-          const intermediateTarget = this.passPool.acquire(
-            w,
-            h,
-            stageDesc.targetDescriptor
-          );
-
-          this.displayMesh.material = stageDesc.material;
-          this.renderer.setRenderTarget(intermediateTarget);
-          this.renderer.render(this.scene, this.camera);
-
-          const nextStage = stages[i + 1];
-          if (nextStage.inputTextureNode) {
-            nextStage.inputTextureNode.value = intermediateTarget.texture;
-          }
-        }
-
-        // Final stage renders to our captureTarget instead of null
-        this.displayMesh.material = this.currentPipeline.finalMaterial;
-        this.renderer.setRenderTarget(captureTarget);
-        this.renderer.render(this.scene, this.camera);
-      }
-
-      // Restore active display render target
-      this.renderer.setRenderTarget(null);
-
-      // Read back pixels asynchronously from GPU
-      const pixels = await (this.renderer as any).readRenderTargetPixelsAsync(
-        captureTarget,
-        0,
-        0,
-        w,
-        h
-      );
-
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = w;
-      exportCanvas.height = h;
-      const ctx = exportCanvas.getContext('2d');
-      if (!ctx) throw new Error('Could not create 2D canvas context for image export');
-
-      const clamped = new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength);
-      const imgData = new ImageData(clamped, w, h);
-      ctx.putImageData(imgData, 0, 0);
-
-      // If WebGL fallback, pixel readback is inverted along Y axis (OpenGL bottom-left origin)
-      if (this.studioRenderer.getIsWebGLFallback()) {
-        const flipCanvas = document.createElement('canvas');
-        flipCanvas.width = w;
-        flipCanvas.height = h;
-        const flipCtx = flipCanvas.getContext('2d')!;
-        flipCtx.translate(0, h);
-        flipCtx.scale(1, -1);
-        flipCtx.drawImage(exportCanvas, 0, 0);
-        return await new Promise<Blob>((resolve, reject) => {
-          flipCanvas.toBlob(
-            (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
-            format === 'png' ? 'image/png' : 'image/jpeg',
-            quality
-          );
-        });
-      }
-
-      return await new Promise<Blob>((resolve, reject) => {
-        exportCanvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
-          format === 'png' ? 'image/png' : 'image/jpeg',
-          quality
-        );
-      });
-    } finally {
-      this.resolutionUniform.value.copy(origResolution);
-      captureTarget.dispose();
-    }
   }
 
   private handleContextLost(): void {

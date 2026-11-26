@@ -19,6 +19,7 @@ import {
 import {
   useStudioStore,
   DEFAULT_AUDIO_STATE,
+  DEFAULT_INITIAL_STACK,
 } from '../store/useStudioStore';
 import AudioPanel from '../components/panels/AudioPanel';
 
@@ -266,17 +267,9 @@ describe('AudioReactivityEngine & Envelope Smoothing (D-11, D-12, D-14, FX-05)',
 describe('useStudioStore audioState & AudioPanel UI (D-10, D-11, D-13, FX-05)', () => {
   beforeEach(() => {
     cleanupAudioGraph();
-    const initialPass = {
-      instanceId: 'initial-ascii',
-      effectId: 'ascii',
-      enabled: true,
-      intensity: 1.0,
-      blendMode: 'normal' as const,
-      parameters: { cellScale: 12 },
-    };
     useStudioStore.setState({
-      activeStack: [initialPass],
-      selectedPassId: 'initial-ascii',
+      activeStack: structuredClone(DEFAULT_INITIAL_STACK),
+      selectedPassId: DEFAULT_INITIAL_STACK[0].instanceId,
       audioState: structuredClone(DEFAULT_AUDIO_STATE),
     });
   });

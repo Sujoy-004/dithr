@@ -1,17 +1,11 @@
 import {
   Fn,
   uv,
-  vec3,
   vec4,
   sin,
-  floor,
-  smoothstep,
-  mix,
   float,
-  vec2,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
-import { rec601Luminance } from '../../color/luminance';
 
 function toNode(val: any, fallback = 0.0): any {
   if (val === undefined || val === null) return float(fallback);
@@ -21,23 +15,21 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Modernized Analog Oscilloscope Wave Lines effect definition (D-01, D-20, D-27).
- * True luminance-deflected oscilloscope raster scanlines on dark CRT phosphor screen.
- * Renders the media to its bone — zero continuous video underneath.
+ * Wave Lines raster distortion effect definition (D-01, D-20, D-27).
+ * Sine wave raster lines with deterministic injected time uniform.
  */
 export const waveLinesEffect: EffectDefinition = {
   id: 'waveLines',
   label: 'Wave Lines',
   category: 'stylize',
   requiresPass: false,
-  requiresSpatialSampling: true,
-  costWeight: 2,
+  costWeight: 1,
   parameters: {
     frequency: {
       type: 'float',
-      min: 5.0,
-      max: 80.0,
-      default: 35.0,
+      min: 1.0,
+      max: 50.0,
+      default: 20.0,
       step: 1.0,
       audioModulatable: true,
     },
@@ -45,7 +37,7 @@ export const waveLinesEffect: EffectDefinition = {
       type: 'float',
       min: 0.0,
       max: 1.0,
-      default: 0.45,
+      default: 0.5,
       step: 0.05,
       audioModulatable: true,
     },
@@ -57,60 +49,21 @@ export const waveLinesEffect: EffectDefinition = {
       step: 0.1,
       audioModulatable: true,
     },
-    lineWidth: {
-      type: 'float',
-      min: 0.02,
-      max: 0.4,
-      default: 0.12,
-      step: 0.01,
-      audioModulatable: true,
-    },
   },
   buildNode: (inputNode, uniforms, env) => {
-    const frequency = toNode(uniforms.frequency, 35.0).max(5.0);
-    const amplitude = toNode(uniforms.amplitude, 0.45);
+    const frequency = toNode(uniforms.frequency, 20.0);
+    const amplitude = toNode(uniforms.amplitude, 0.5);
     const speed = toNode(uniforms.speed, 1.0);
-    const lineWidth = toNode(uniforms.lineWidth, 0.12);
     const time = env?.time ?? uniforms.time ?? float(0.0);
-    const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
-      const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
+      const wave = sin(st.y.mul(frequency).add(time.mul(speed.mul(2.0)))).mul(amplitude);
+      const waveMask = sin(st.x.mul(100.0).add(wave)).mul(0.5).add(0.5);
 
-      // CRT oscilloscope void background
-      const bg = vec3(0.015, 0.015, 0.025);
-
-      const sampleFn = (coord: any) => {
-        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
-        if (typeof inputNode === 'function') return inputNode(coord);
-        return inputNode;
-      };
-
-      // Discrete scanlines down the screen
-      const lineCount = frequency;
-      const scanlineIdx = floor(st.y.mul(lineCount));
-      const lineCenterY = scanlineIdx.add(0.5).div(lineCount);
-
-      // Sample image along this scanline
-      const sampleCol = sampleFn(vec2(st.x as any, lineCenterY as any));
-      const lum = rec601Luminance(sampleCol.rgb);
-
-      // Analog oscilloscope deflection: luminance pushes the beam vertically
-      const sineHum = sin(st.x.mul(25.0).add(time.mul(speed.mul(3.0)))).mul(0.005);
-      const waveDisplace = lum.mul(amplitude.mul(0.08)).add(sineHum);
-      const displacedLineY = lineCenterY.add(waveDisplace);
-
-      // Distance from pixel to the displaced waveform
-      const distInPixels = st.y.sub(displacedLineY).abs().mul(safeRes.y);
-      const stroke = smoothstep(lineWidth.mul(safeRes.y).max(1.2), float(0.0), distInPixels);
-
-      // Glowing oscilloscope phosphor line
-      const phosphorGreen = vec3(0.15, 1.0, 0.45);
-      const glowingLine = mix(phosphorGreen, sampleCol.rgb.mul(1.5), 0.5);
-
-      const finalRGB = mix(bg, glowingLine, stroke);
-      return vec4(finalRGB, sampleCol.a ?? float(1.0));
+      const baseCol = inputNode;
+      const finalRGB = baseCol.rgb.mul(waveMask);
+      return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },
 };

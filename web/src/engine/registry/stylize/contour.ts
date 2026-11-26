@@ -2,10 +2,7 @@ import {
   Fn,
   vec3,
   vec4,
-  floor,
   fract,
-  smoothstep,
-  mix,
   float,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
@@ -19,9 +16,8 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Modernized Topographic Contour Banding effect definition (D-01, D-05, D-20).
- * True stepped elevation plateau quantization with crisp vector isolines at boundaries.
- * Renders the media to its bone — zero continuous video underneath.
+ * Topographic Contour Banding effect definition (D-01, D-05, D-20).
+ * Generates isoline contour levels based on Rec. 601 perceived luminance.
  */
 export const contourEffect: EffectDefinition = {
   id: 'contour',
@@ -41,34 +37,25 @@ export const contourEffect: EffectDefinition = {
     lineWidth: {
       type: 'float',
       min: 0.02,
-      max: 0.4,
-      default: 0.12,
+      max: 0.5,
+      default: 0.15,
       step: 0.01,
       audioModulatable: true,
     },
   },
   buildNode: (inputNode, uniforms) => {
-    const steps = toNode(uniforms.steps, 8.0).max(2.0);
-    const lineWidth = toNode(uniforms.lineWidth, 0.12);
+    const steps = toNode(uniforms.steps, 8.0);
+    const lineWidth = toNode(uniforms.lineWidth, 0.15);
 
     return Fn(() => {
       const baseCol = inputNode;
       const lum = rec601Luminance(baseCol.rgb);
 
-      // 1. Strict elevation plateau quantization (no continuous gradients)
-      const stepIdx = floor(lum.mul(steps));
-      const plateauNorm = stepIdx.div(steps.sub(1.0).max(1.0));
-      const plateauCol = baseCol.rgb.mul(plateauNorm.mul(0.85).add(0.15));
-
-      // 2. Crisp vector contour boundary lines
       const stepVal = fract(lum.mul(steps));
-      const distToEdge = stepVal.min(float(1.0).sub(stepVal));
-      const isBoundary = smoothstep(lineWidth, float(0.0), distToEdge);
+      const lineMask = stepVal.lessThan(lineWidth).select(1.0, 0.0);
+      const contourCol = vec3(lineMask).mul(baseCol.rgb);
 
-      const contourLineColor = vec3(1.0);
-      const finalRGB = mix(plateauCol, contourLineColor, isBoundary);
-
-      return vec4(finalRGB, baseCol.a ?? float(1.0));
+      return vec4(contourCol, baseCol.a ?? float(1.0));
     })();
   },
 };

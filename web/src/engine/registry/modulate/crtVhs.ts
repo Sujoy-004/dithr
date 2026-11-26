@@ -27,7 +27,6 @@ export interface CrtVhsProfileParams {
   scanlineCount: number;
   phosphorDecay: number;
   trackingJitter: number;
-  aberration?: number;
   bloomIntensity: number;
   vignette: number;
   noiseIntensity: number;
@@ -47,7 +46,6 @@ export const CRT_VHS_PROFILES: Record<CrtVhsProfileName, CrtVhsProfileParams> = 
     scanlineCount: 480.0,
     phosphorDecay: 0.1,
     trackingJitter: 0.1,
-    aberration: 0.1,
     bloomIntensity: 0.15,
     vignette: 0.1,
     noiseIntensity: 0.05,
@@ -58,7 +56,6 @@ export const CRT_VHS_PROFILES: Record<CrtVhsProfileName, CrtVhsProfileParams> = 
     scanlineCount: 360.0,
     phosphorDecay: 0.4,
     trackingJitter: 0.6,
-    aberration: 0.4,
     bloomIntensity: 0.25,
     vignette: 0.2,
     noiseIntensity: 0.5,
@@ -69,7 +66,6 @@ export const CRT_VHS_PROFILES: Record<CrtVhsProfileName, CrtVhsProfileParams> = 
     scanlineCount: 240.0,
     phosphorDecay: 0.25,
     trackingJitter: 0.05,
-    aberration: 0.15,
     bloomIntensity: 0.4,
     vignette: 0.35,
     noiseIntensity: 0.08,
@@ -80,7 +76,6 @@ export const CRT_VHS_PROFILES: Record<CrtVhsProfileName, CrtVhsProfileParams> = 
     scanlineCount: 600.0,
     phosphorDecay: 0.15,
     trackingJitter: 0.02,
-    aberration: 0.05,
     bloomIntensity: 0.2,
     vignette: 0.15,
     noiseIntensity: 0.02,
@@ -169,14 +164,6 @@ export const crtVhsEffect: EffectDefinition = {
       step: 0.01,
       audioModulatable: true,
     },
-    aberration: {
-      type: 'float',
-      min: 0.0,
-      max: 1.0,
-      default: 0.1,
-      step: 0.01,
-      audioModulatable: true,
-    },
     bloomIntensity: {
       type: 'float',
       min: 0.0,
@@ -208,7 +195,6 @@ export const crtVhsEffect: EffectDefinition = {
     const scanlineCount = toNode(uniforms.scanlineCount, 480.0);
     const rawPhosphorDecay = toNode(uniforms.phosphorDecay, 0.1);
     const trackingJitter = toNode(uniforms.trackingJitter, 0.1);
-    const aberration = toNode(uniforms.aberration, 0.1);
     const bloomIntensity = toNode(uniforms.bloomIntensity, 0.15);
     const vignette = toNode(uniforms.vignette, 0.1);
     const noiseIntensity = toNode(uniforms.noiseIntensity, 0.05);
@@ -244,12 +230,8 @@ export const crtVhsEffect: EffectDefinition = {
         return inputNode;
       };
 
-      const aberOffset = aberration.mul(0.0035);
-      const colR: any = sampleFn(vec2(sampleUV.x.add(aberOffset), sampleUV.y).clamp(0.0, 1.0));
-      const colG: any = sampleFn(sampleUV);
-      const colB: any = sampleFn(vec2(sampleUV.x.sub(aberOffset), sampleUV.y).clamp(0.0, 1.0));
-      let rgb: any = vec3(colR.r, colG.g, colB.b);
-      const sampledAlpha = colG.a ?? float(1.0);
+      const sampledColor: any = sampleFn(sampleUV);
+      let rgb: any = sampledColor.rgb;
 
       // 3. Scanline simulation
       const scanlinePhase: any = distortedUV.y.mul(scanlineCount).add(time.mul(2.0));
@@ -281,7 +263,7 @@ export const crtVhsEffect: EffectDefinition = {
 
       // Darken out of bounds
       const finalRGB: any = inBounds.select(clamp(rgb, 0.0, 1.0), vec3(0.0));
-      return vec4(finalRGB, sampledAlpha);
+      return vec4(finalRGB, sampledColor.a ?? float(1.0));
     })();
   },
 };

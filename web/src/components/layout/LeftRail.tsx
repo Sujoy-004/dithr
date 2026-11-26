@@ -105,6 +105,7 @@ export default function LeftRail() {
   const reorderStack = useStudioStore((s) => s.reorderStack);
   const toggleEffect = useStudioStore((s) => s.toggleEffect);
   const duplicateEffect = useStudioStore((s) => s.duplicateEffect);
+  const setSingleEffectFastPath = useStudioStore((s) => s.setSingleEffectFastPath);
 
   const ascii = useStudioStore((s) => s.ascii);
   const updateAscii = useStudioStore((s) => s.updateAscii);
@@ -349,7 +350,7 @@ export default function LeftRail() {
         <div className="px-4 pb-2">
           {activeStack.length === 0 ? (
             <div className="p-3 text-center border border-dashed border-hairline text-dim text-control">
-              Pristine Media (Passthrough). Click any shader below to apply.
+              Stack is empty. Add an effect below.
             </div>
           ) : (
             <ul
@@ -414,17 +415,6 @@ export default function LeftRail() {
                         {def?.label || pass.effectId}
                       </span>
                     </button>
-
-                    {/* Blend mode & intensity badge */}
-                    <span
-                      className="text-[9px] uppercase px-1 py-0.5 bg-base text-dim border border-hairline shrink-0"
-                      title={`Blend: ${pass.blendMode}`}
-                    >
-                      {pass.blendMode === 'softLight' ? 'sft' : pass.blendMode.slice(0, 3)}
-                    </span>
-                    <span className="text-[10px] tabular-nums text-dim shrink-0">
-                      {Math.round(pass.intensity * 100)}%
-                    </span>
 
                     {/* Quick Row Actions: Eye, Duplicate, Delete */}
                     <div className="flex items-center gap-0.5 shrink-0">
@@ -521,115 +511,54 @@ export default function LeftRail() {
           </div>
         </div>
 
-        {/* 16 Shaders Grid Section */}
-        <SectionHeader title="16 shaders" state={`${EFFECT_LIST.length}`} />
+        {/* Palette Section / Direct Tile Fast-Path (D-04) */}
+        <SectionHeader title="palette mode" state={`${EFFECT_LIST.length}`} />
         <div
-          className="grid grid-cols-2 gap-1 px-4 pb-3"
+          className="grid grid-cols-2 gap-px bg-hairline"
           role="region"
-          aria-label="16 Shaders"
+          aria-label="Effect palette"
         >
           {EFFECT_LIST.map(({ mode, label, Icon }) => {
-            const inStackPasses = activeStack.filter((p) => p.effectId === mode);
-            const isInStack = inStackPasses.length > 0;
-            const isSelected = selectedPassId !== null && inStackPasses.some((p) => p.instanceId === selectedPassId);
-            const isEnabled = inStackPasses.some((p) => p.enabled);
-
-            const handleCardClick = () => {
-              if (!isInStack) {
-                addEffect(mode);
-              } else {
-                setSelectedPassId(inStackPasses[0].instanceId);
-              }
-            };
-
+            const isSingleActive =
+              activeStack.length === 1 && activeStack[0].effectId === mode;
+            const isPresent = activeStack.some(
+              (p) => p.effectId === mode && p.enabled
+            );
             return (
               <div
                 key={mode}
-                className={`group relative flex flex-col justify-between p-1.5 border transition-all duration-fast ${
-                  isSelected
-                    ? 'border-highlight bg-active text-highlight ring-1 ring-highlight/40'
-                    : isInStack
-                    ? 'border-hairline bg-raised text-default hover:border-highlight'
-                    : 'border-hairline/60 bg-base text-default hover:bg-raised hover:border-hairline'
+                className={`group relative flex h-6 items-center bg-base transition-colors duration-fast ${
+                  isSingleActive
+                    ? 'bg-active text-highlight'
+                    : isPresent
+                    ? 'text-highlight'
+                    : 'text-default hover:bg-active'
                 }`}
               >
-                {/* Card Header & Badge */}
-                <div className="flex items-center justify-between gap-1 mb-1">
-                  <div className="flex items-center gap-1 min-w-0">
-                    <Icon size={12} strokeWidth={1.5} className="shrink-0 text-dim group-hover:text-highlight transition-colors" />
-                    <span className="truncate text-control font-medium capitalize">{label}</span>
-                  </div>
-                  {isSelected ? (
-                    <span className="px-1 text-[8px] font-bold bg-highlight text-base tracking-wider uppercase shrink-0">
-                      ACTIVE
-                    </span>
-                  ) : isInStack ? (
-                    <span className="px-1 text-[8px] bg-active text-highlight tracking-wider uppercase border border-hairline shrink-0">
-                      IN STACK{inStackPasses.length > 1 ? ` (${inStackPasses.length})` : ''}
-                    </span>
-                  ) : null}
-                </div>
-
-                {/* Card Actions: Primary Click + Quick Buttons */}
-                <div className="flex items-center justify-between gap-1 pt-1 border-t border-hairline/40">
-                  <button
-                    type="button"
-                    title={isInStack ? `Inspect ${label}` : `Apply ${label}`}
-                    data-effect-id={mode}
-                    data-testid={`set-effect-${mode}`}
-                    onClick={handleCardClick}
-                    className="flex-1 text-left text-[10px] text-dim hover:text-highlight truncate"
-                  >
-                    {isInStack ? 'inspect' : 'apply'}
-                  </button>
-
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    {isInStack && (
-                      <>
-                        <button
-                          type="button"
-                          title={isEnabled ? 'Disable pass' : 'Enable pass'}
-                          aria-label={`Toggle ${label}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleEffect(inStackPasses[0].instanceId);
-                          }}
-                          className={`p-0.5 hover:text-highlight transition-colors ${
-                            isEnabled ? 'text-highlight' : 'text-dim'
-                          }`}
-                        >
-                          {isEnabled ? <Eye size={10} /> : <EyeOff size={10} />}
-                        </button>
-                        <button
-                          type="button"
-                          title="Remove from stack"
-                          aria-label={`Remove ${label}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeEffect(inStackPasses[0].instanceId);
-                          }}
-                          className="p-0.5 text-dim hover:text-red-400 transition-colors"
-                        >
-                          <Trash2 size={10} />
-                        </button>
-                      </>
-                    )}
-                    <button
-                      type="button"
-                      title={`Stack another instance of ${label}`}
-                      aria-label={`Add ${label} to stack`}
-                      data-effect-id={mode}
-                      data-testid={`add-effect-${mode}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        addEffect(mode);
-                      }}
-                      className="p-0.5 text-dim hover:text-highlight hover:bg-active transition-colors"
-                    >
-                      <Plus size={11} strokeWidth={2} />
-                    </button>
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  title={`Set single effect: ${label} (fast path)`}
+                  onClick={() => setSingleEffectFastPath(mode)}
+                  className="flex h-full flex-1 items-center gap-1.5 px-2 text-control text-left truncate"
+                >
+                  <span aria-hidden className="w-2.5 text-center text-[10px]">
+                    {isSingleActive ? '●' : isPresent ? '◆' : '○'}
+                  </span>
+                  <span className="truncate">{label}</span>
+                  <Icon size={11} strokeWidth={1.5} className="ml-auto shrink-0 opacity-60" />
+                </button>
+                <button
+                  type="button"
+                  title={`Add ${label} to stack`}
+                  aria-label={`Add ${label} to stack`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    addEffect(mode);
+                  }}
+                  className="mr-1 flex h-4 w-4 items-center justify-center text-dim hover:text-highlight hover:bg-raised"
+                >
+                  <Plus size={10} />
+                </button>
               </div>
             );
           })}
