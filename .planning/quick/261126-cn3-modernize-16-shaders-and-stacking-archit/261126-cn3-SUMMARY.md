@@ -7,6 +7,7 @@
 - `3833b17`: feat(quick-261126-cn3): stacking architecture and pristine ingestion refactor
 - `bd1db30`: feat(quick-261126-cn3): modernize 16-shader visuals, UX and compositions
 - `934db4b`: fix(quick-261126-cn3): clean TypeScript builds and unused declarations
+- `391a25d`: fix(shaders): render all shaders to the bone and enable true multi-pass stacking
 
 ---
 
@@ -98,3 +99,25 @@ This quick task delivered a major architectural upgrade to dithr Studio across t
   ```
   Success: no issues found in 23 source files
   ```
+
+---
+
+## 4. Deep "Render to the Bone" Shader & Multi-Pass Stacking Upgrade
+
+Following user feedback that shaders must not merely overlay a transparent mesh/veil over raw video, but render the media *to its bone* into its physical/analog medium, the shaders and graph compiler were refactored:
+
+1. **True Medium Reconstruction (Zero Continuous Video Underneath)**:
+   - **`dither.ts`**: Chunky retro pixel cells (`pixelSize: 3.0` default) quantized strictly with Bayer matrix and palette selection (Monochrome 1-bit Mac/Obra Dinn, Game Boy 4-shade olive green, CGA 4-color, and quantized RGB).
+   - **`dots.ts`**: Discrete circular LED diodes sampled at cell centers on a dark carbon chassis (`#020203`), eliminating continuous video wash.
+   - **`halftone.ts`**: Authentic newsprint/comic offset print: cream/white paper (`#f5f2ea`) and black printing ink dots (`#121015`) sized by Rec. 601 luminance.
+   - **`waveLines.ts`**: CRT oscilloscope void with luminous phosphor scanline waveforms deflected vertically by video luminance.
+   - **`crosshatch.ts`**: Ivory banknote engraving paper (`#f6f4ee`) and deep black intaglio etching ink across 4 progressive angles.
+   - **`contour.ts`**: Strict stepped elevation plateau quantization with crisp vector isolines at boundaries.
+   - **`matrix.ts`**: Terminal black void with falling green phosphor code streams powered by video luminance.
+   - **`voronoi.ts`**: True 3x3 Worley cellular distance noise with flat solid facet colors sampled at seed points and dark lead came borders.
+   - **`edgeDetect.ts`**: Neon vector blueprint outlines on black space.
+
+2. **True Multi-Pass Stacking Pipeline (`GraphCompiler.ts`)**:
+   - Registered `'vhs'`, `'crtVhs'`, `'dots'`, `'halftone'`, `'waveLines'`, `'matrix'`, `'voronoi'`, and `'ascii'` in `SPATIAL_INTERMEDIATE_EFFECTS`.
+   - When a user stacks shaders (e.g. VHS on top of Dither, or Halftone on top of RGB Split), upstream passes are automatically flushed to pooled intermediate `RenderTarget`s (`PassPool`).
+   - The downstream shader samples the actual rasterized output of the upstream shader rather than raw input media, allowing VHS tape jitter, barrel curvature, and scanlines to physically distort the dithered/halftoned image.
