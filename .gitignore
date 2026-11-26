@@ -33,3 +33,10 @@ GEMINI.md
 .gsd/
 .planning/tmp/
 session-*.md
+
+# Design & audit artifacts
+.impeccable/
+verification_evidence/
+AUDIT.md
+DESIGN.md
+PRODUCT.md
