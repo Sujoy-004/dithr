@@ -18,7 +18,7 @@ export interface ParameterSchema {
 
 export type EffectCategory = 'stylize' | 'modulate';
 
-export type BlendMode = 'normal' | 'multiply' | 'screen' | 'add';
+export type BlendMode = 'normal' | 'multiply' | 'screen' | 'add' | 'overlay' | 'softLight';
 
 export interface EffectEnvironment {
   resolution?: any;     // vec2 TSL uniform

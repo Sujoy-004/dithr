@@ -96,6 +96,8 @@ export default function EffectInspector({ onParamChange }: EffectInspectorProps)
             <option value="multiply">multiply</option>
             <option value="screen">screen</option>
             <option value="add">add</option>
+            <option value="overlay">overlay</option>
+            <option value="softLight">soft light</option>
           </select>
         </label>
       </div>

@@ -33,6 +33,12 @@ import { crtVhsEffect } from './modulate/crtVhs';
 
 import { sRGBToLinear, linearTosRGB } from '../color/colorSpace';
 
+const vhsEffect: EffectDefinition = {
+  ...crtVhsEffect,
+  id: 'vhs',
+  label: 'VHS / CRT',
+};
+
 export const ALL_EFFECT_DEFINITIONS: readonly EffectDefinition[] = [
   asciiEffect,
   toneEffect,
@@ -74,6 +80,12 @@ export class EffectRegistry {
   }
 
   get(id: string): EffectDefinition | undefined {
+    if (id === 'vhs') {
+      return this.effects.get('vhs') ?? this.effects.get('crtVhs');
+    }
+    if (id === 'crtVhs') {
+      return this.effects.get('crtVhs') ?? this.effects.get('vhs');
+    }
     return this.effects.get(id);
   }
 
@@ -126,6 +138,23 @@ export function applyBlendMode(
       resultRgb = vec3(1.0).sub(vec3(1.0).sub(upstream.rgb).mul(vec3(1.0).sub(effectCol.rgb)));
     } else if (blendMode === 'add') {
       resultRgb = upstream.rgb.add(effectCol.rgb).min(1.0);
+    } else if (blendMode === 'overlay') {
+      const overlayChan = (u: any, e: any) => {
+        const dark = float(2.0).mul(u).mul(e);
+        const bright = float(1.0).sub(float(2.0).mul(float(1.0).sub(u)).mul(float(1.0).sub(e)));
+        return e.lessThan(float(0.5)).select(dark, bright);
+      };
+      resultRgb = vec3(
+        overlayChan(upstream.r, effectCol.r),
+        overlayChan(upstream.g, effectCol.g),
+        overlayChan(upstream.b, effectCol.b)
+      );
+    } else if (blendMode === 'softLight') {
+      const u = upstream.rgb;
+      const e = effectCol.rgb;
+      const term1 = vec3(1.0).sub(float(2.0).mul(e)).mul(u).mul(u);
+      const term2 = float(2.0).mul(e).mul(u);
+      resultRgb = term1.add(term2);
     }
 
     const mixedRgb = upstream.rgb.mix(resultRgb, intensityNode);
@@ -181,4 +210,5 @@ export {
   rgbSplitEffect,
   masksEffect,
   crtVhsEffect,
+  vhsEffect,
 };
