@@ -2,7 +2,9 @@ import {
   Fn,
   uv,
   vec2,
+  vec3,
   vec4,
+  floor,
   fract,
   smoothstep,
   mix,
@@ -20,21 +22,22 @@ function toNode(val: any, fallback = 0.0): any {
 
 /**
  * Modernized Halftone Screen effect definition (D-01, D-05, D-20).
- * Parametric rotating halftone dot screen with Rec. 601 luminance sizing,
- * smoothstep subpixel edge anti-aliasing, and paper backing tone preservation.
+ * Parametric rotating halftone dot screen with Rec. 601 luminance sizing on authentic paper.
+ * Renders the media to its bone as real printed ink on paper — zero continuous video underneath.
  */
 export const halftoneEffect: EffectDefinition = {
   id: 'halftone',
   label: 'Halftone Screen',
   category: 'stylize',
   requiresPass: false,
-  costWeight: 1,
+  requiresSpatialSampling: true,
+  costWeight: 2,
   parameters: {
     frequency: {
       type: 'float',
       min: 5.0,
       max: 100.0,
-      default: 30.0,
+      default: 35.0,
       step: 1.0,
       audioModulatable: true,
     },
@@ -64,11 +67,10 @@ export const halftoneEffect: EffectDefinition = {
       audioModulatable: true,
     },
   },
-  buildNode: (inputNode, uniforms) => {
-    const frequency = toNode(uniforms.frequency, 30.0).max(1.0);
+  buildNode: (inputNode, uniforms, env) => {
+    const frequency = toNode(uniforms.frequency, 35.0).max(1.0);
     const angle = toNode(uniforms.angle, 45.0);
     const dotRadius = toNode(uniforms.dotRadius, 1.0);
-    const paperTint = toNode(uniforms.paperTint, 0.15).clamp(0.0, 1.0);
 
     return Fn(() => {
       const st: any = uv();
@@ -81,24 +83,38 @@ export const halftoneEffect: EffectDefinition = {
       const rotY: any = centeredUV.x.mul(sinA).add(centeredUV.y.mul(cosA));
       const rotatedUV: any = vec2(rotX, rotY);
 
+      // Rotated grid cell
+      const cellIdx: any = floor(rotatedUV.mul(frequency));
+      const rotCellCenter: any = cellIdx.add(0.5).div(frequency);
+
+      // Unrotate cell center to get UV in image space
+      const unrotX: any = rotCellCenter.x.mul(cosA).add(rotCellCenter.y.mul(sinA));
+      const unrotY: any = rotCellCenter.y.mul(cosA).sub(rotCellCenter.x.mul(sinA));
+      const cellCenterUV: any = vec2(unrotX, unrotY).add(0.5).clamp(0.0, 1.0);
+
+      const sampleFn = (coord: any) => {
+        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
+        if (typeof inputNode === 'function') return inputNode(coord);
+        return inputNode;
+      };
+
+      const cellCol = sampleFn(cellCenterUV);
+      const lum = rec601Luminance(cellCol.rgb);
+
       const gridCoord = fract(rotatedUV.mul(frequency)).sub(0.5);
       const distToCenter = gridCoord.length();
 
-      const baseCol = inputNode;
-      const rgb = baseCol.rgb;
+      // Authentic newsprint / comic book paper
+      const paperColor = vec3(0.96, 0.95, 0.91);
+      // Pure black printing ink
+      const inkColor = vec3(0.07, 0.06, 0.08);
 
-      const lum = rec601Luminance(rgb);
-      const targetRadius = lum.mul(dotRadius).mul(0.5).clamp(0.02, 0.7);
+      // Darker areas have larger ink dots (dot gain)
+      const targetRadius = float(1.0).sub(lum).mul(dotRadius).mul(0.55).clamp(0.0, 0.7);
+      const inker = smoothstep(targetRadius.add(0.03), targetRadius.sub(0.03), distToCenter);
 
-      // Subpixel edge anti-aliasing via smoothstep
-      const feather = float(0.05);
-      const dotAperture = smoothstep(targetRadius.add(feather), targetRadius.sub(feather), distToCenter);
-
-      // Preserved paper backing tint rather than pitch black void
-      const paperBase = rgb.mul(paperTint.mul(0.35));
-      const finalRGB = mix(paperBase, rgb, dotAperture);
-
-      return vec4(finalRGB, baseCol.a ?? float(1.0));
+      const finalRGB = mix(paperColor, inkColor, inker);
+      return vec4(finalRGB, cellCol.a ?? float(1.0));
     })();
   },
 };

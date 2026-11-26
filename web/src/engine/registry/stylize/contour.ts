@@ -20,7 +20,8 @@ function toNode(val: any, fallback = 0.0): any {
 
 /**
  * Modernized Topographic Contour Banding effect definition (D-01, D-05, D-20).
- * Generates stepped elevation posterization bands with anti-aliased vector isoline boundaries.
+ * True stepped elevation plateau quantization with crisp vector isolines at boundaries.
+ * Renders the media to its bone — zero continuous video underneath.
  */
 export const contourEffect: EffectDefinition = {
   id: 'contour',
@@ -45,38 +46,27 @@ export const contourEffect: EffectDefinition = {
       step: 0.01,
       audioModulatable: true,
     },
-    fillBands: {
-      type: 'float',
-      min: 0.0,
-      max: 1.0,
-      default: 0.85,
-      step: 0.05,
-      audioModulatable: true,
-    },
   },
   buildNode: (inputNode, uniforms) => {
     const steps = toNode(uniforms.steps, 8.0).max(2.0);
     const lineWidth = toNode(uniforms.lineWidth, 0.12);
-    const fillBands = toNode(uniforms.fillBands, 0.85).clamp(0.0, 1.0);
 
     return Fn(() => {
       const baseCol = inputNode;
       const lum = rec601Luminance(baseCol.rgb);
 
-      // 1. Stepped elevation tonal banding (preserves scene composition)
+      // 1. Strict elevation plateau quantization (no continuous gradients)
       const stepIdx = floor(lum.mul(steps));
-      const quantizedLum = stepIdx.div(steps.sub(1.0).max(1.0));
-      const bandColor = baseCol.rgb.mul(quantizedLum.mul(0.7).add(0.3));
-      const tonalBase = mix(baseCol.rgb, bandColor, fillBands);
+      const plateauNorm = stepIdx.div(steps.sub(1.0).max(1.0));
+      const plateauCol = baseCol.rgb.mul(plateauNorm.mul(0.85).add(0.15));
 
-      // 2. Anti-aliased isoline contour boundaries via smoothstep
+      // 2. Crisp vector contour boundary lines
       const stepVal = fract(lum.mul(steps));
       const distToEdge = stepVal.min(float(1.0).sub(stepVal));
-      const lineMask = smoothstep(lineWidth, float(0.0), distToEdge);
+      const isBoundary = smoothstep(lineWidth, float(0.0), distToEdge);
 
-      // 3. Composite crisp vector contour lines over elevation bands
-      const lineColor = vec3(1.0);
-      const finalRGB = mix(tonalBase, lineColor, lineMask);
+      const contourLineColor = vec3(1.0);
+      const finalRGB = mix(plateauCol, contourLineColor, isBoundary);
 
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();

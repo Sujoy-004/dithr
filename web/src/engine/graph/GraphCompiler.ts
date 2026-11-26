@@ -19,6 +19,14 @@ export const SPATIAL_INTERMEDIATE_EFFECTS = new Set([
   'edgeDetect',
   'pixelSort',
   'rgbSplit',
+  'vhs',
+  'crtVhs',
+  'dots',
+  'halftone',
+  'waveLines',
+  'matrix',
+  'voronoi',
+  'ascii',
 ]);
 
 export interface ExecutionStage {

@@ -1,6 +1,7 @@
 import {
   Fn,
   uv,
+  vec3,
   vec4,
   fract,
   smoothstep,
@@ -20,8 +21,8 @@ function toNode(val: any, fallback = 0.0): any {
 
 /**
  * Modernized Crosshatch Engraving effect definition (D-01, D-05, D-20).
- * 4-tier progressive hatching angles (45°, -45°, 90°, 0°) with smoothstep anti-aliasing
- * and paper-tone contrast preservation.
+ * 4-tier progressive intaglio etching angles (45°, -45°, 90°, 0°) with pure ink on archival paper.
+ * Renders the media to its bone — zero continuous video underneath.
  */
 export const crosshatchEffect: EffectDefinition = {
   id: 'crosshatch',
@@ -51,7 +52,7 @@ export const crosshatchEffect: EffectDefinition = {
       type: 'float',
       min: 0.1,
       max: 1.0,
-      default: 0.85,
+      default: 0.95,
       step: 0.05,
       audioModulatable: true,
     },
@@ -59,17 +60,24 @@ export const crosshatchEffect: EffectDefinition = {
   buildNode: (inputNode, uniforms, env) => {
     const spacing = toNode(uniforms.spacing, 6.0).max(1.0);
     const density = toNode(uniforms.density, 0.25);
-    const contrast = toNode(uniforms.contrast, 0.85).clamp(0.0, 1.0);
+    const contrast = toNode(uniforms.contrast, 0.95).clamp(0.0, 1.0);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
       const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
       const pixelCoord = st.mul(safeRes);
-      const baseCol = inputNode;
+
+      const sampleFn = (coord: any) => {
+        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
+        if (typeof inputNode === 'function') return inputNode(coord);
+        return inputNode;
+      };
+
+      const baseCol = sampleFn(st);
       const lum = rec601Luminance(baseCol.rgb);
 
-      // 4 hatching orientations: 45°, -45°, 90° (vertical), 0° (horizontal)
+      // 4 progressive hatching angles: 45°, -45°, 90°, 0°
       const coord1 = pixelCoord.x.add(pixelCoord.y);
       const coord2 = pixelCoord.x.sub(pixelCoord.y);
       const coord3 = pixelCoord.x;
@@ -80,10 +88,10 @@ export const crosshatchEffect: EffectDefinition = {
       const dist3 = fract(coord3.div(spacing)).sub(0.5).abs().mul(2.0);
       const dist4 = fract(coord4.div(spacing)).sub(0.5).abs().mul(2.0);
 
-      const stroke1 = smoothstep(density, density.sub(0.12).max(0.01), dist1);
-      const stroke2 = smoothstep(density, density.sub(0.12).max(0.01), dist2);
-      const stroke3 = smoothstep(density, density.sub(0.12).max(0.01), dist3);
-      const stroke4 = smoothstep(density, density.sub(0.12).max(0.01), dist4);
+      const stroke1 = smoothstep(density, density.sub(0.1).max(0.01), dist1);
+      const stroke2 = smoothstep(density, density.sub(0.1).max(0.01), dist2);
+      const stroke3 = smoothstep(density, density.sub(0.1).max(0.01), dist3);
+      const stroke4 = smoothstep(density, density.sub(0.1).max(0.01), dist4);
 
       // 4 progressive tiers triggered by Rec. 601 luminance
       const w1 = smoothstep(float(0.85), float(0.65), lum);
@@ -97,11 +105,12 @@ export const crosshatchEffect: EffectDefinition = {
         .add(stroke4.mul(w4))
         .clamp(0.0, 1.0);
 
-      // Classical banknote engraving paper and ink color mapping
-      const paperColor = baseCol.rgb.mul(0.6).add(0.4);
-      const inkColor = baseCol.rgb.mul(0.08);
-      const finalRGB = mix(paperColor, inkColor, totalInk.mul(contrast));
+      // Pure archival print paper (clean ivory)
+      const paperColor = vec3(0.96, 0.94, 0.89);
+      // Deep intaglio engraving ink
+      const inkColor = vec3(0.05, 0.04, 0.06);
 
+      const finalRGB = mix(paperColor, inkColor, totalInk.mul(contrast));
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },

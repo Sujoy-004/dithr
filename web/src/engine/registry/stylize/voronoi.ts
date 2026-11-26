@@ -23,13 +23,15 @@ function toNode(val: any, fallback = 0.0): any {
 /**
  * Modernized Voronoi Cellular Mosaic effect definition (D-01, D-20).
  * True cellular Voronoi with 3x3 Worley distance partition, anti-aliased facet borders,
- * and facet color sampling.
+ * and solid facet color sampling.
+ * Renders the media to its bone — zero continuous video underneath.
  */
 export const voronoiEffect: EffectDefinition = {
   id: 'voronoi',
   label: 'Voronoi Mosaic',
   category: 'stylize',
   requiresPass: false,
+  requiresSpatialSampling: true,
   costWeight: 2,
   parameters: {
     scale: {
@@ -106,16 +108,13 @@ export const voronoiEffect: EffectDefinition = {
       // Sample facet color at cell feature point
       const facetUV = ip.add(closestOffset).add(0.5).mul(scale).div(safeRes).clamp(0.0, 1.0);
       const facetCol = sampleFn(facetUV);
-      const baseCol = inputNode;
 
       // Anti-aliased facet border (F2 - F1 distance metric)
       const border = smoothstep(float(0.0), borderWidth.max(0.005), secondDist.sub(minDist));
-      const borderColor = vec3(0.05, 0.05, 0.08); // Dark lead came border
+      const borderColor = vec3(0.04, 0.04, 0.06); // Dark lead came border
 
-      const facetRgb = facetCol?.rgb ? facetCol.rgb : baseCol.rgb;
-      const finalRGB = mix(borderColor, facetRgb, border);
-
-      return vec4(finalRGB, baseCol.a ?? float(1.0));
+      const finalRGB = mix(borderColor, facetCol.rgb, border);
+      return vec4(finalRGB, facetCol.a ?? float(1.0));
     })();
   },
 };

@@ -4,6 +4,7 @@ import {
   vec2,
   vec3,
   vec4,
+  mix,
   float,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
@@ -17,8 +18,9 @@ function toNode(val: any, fallback = 0.0): any {
 }
 
 /**
- * Edge Detection convolution filter effect definition (D-01, D-05, D-20).
- * Detects structural luminance discontinuities via Sobel/finite-difference gradient.
+ * Modernized Edge Detection convolution filter effect definition (D-01, D-05, D-20).
+ * Neon vector blueprint outlines on black space.
+ * Renders the media to its bone — zero continuous video underneath.
  */
 export const edgeDetectEffect: EffectDefinition = {
   id: 'edgeDetect',
@@ -99,10 +101,13 @@ export const edgeDetectEffect: EffectDefinition = {
       // Sobel vertical gradient: gy = (bl + b*2.0 + br) - (tl + t*2.0 + tr)
       const gy = blLum.add(bLum.mul(2.0)).add(brLum).sub(tlLum.add(tLum.mul(2.0)).add(trLum));
 
-      // Gradient magnitude: sqrt(gx*gx + gy*gy) * sensitivity, clamped to [0.0, 1.0]
-      const mag = gx.mul(gx).add(gy.mul(gy)).sqrt().mul(sensitivity).clamp(0.0, 1.0);
+      const edge = gx.mul(gx).add(gy.mul(gy)).sqrt().mul(sensitivity);
 
-      return vec4(vec3(mag), baseCol.a ?? float(1.0));
+      const bg = vec3(0.01, 0.02, 0.04);
+      const neonEdge = mix(vec3(0.1, 0.85, 1.0), baseCol.rgb.mul(1.5), 0.5);
+      const finalRGB = mix(bg, neonEdge, edge.clamp(0.0, 1.0));
+
+      return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },
 };

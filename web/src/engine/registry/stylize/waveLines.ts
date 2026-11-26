@@ -4,10 +4,11 @@ import {
   vec3,
   vec4,
   sin,
-  fract,
+  floor,
   smoothstep,
   mix,
   float,
+  vec2,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
 import { rec601Luminance } from '../../color/luminance';
@@ -21,20 +22,22 @@ function toNode(val: any, fallback = 0.0): any {
 
 /**
  * Modernized Analog Oscilloscope Wave Lines effect definition (D-01, D-20, D-27).
- * True luminance-displaced analog oscilloscope raster scanlines with smooth anti-aliased falloff.
+ * True luminance-deflected oscilloscope raster scanlines on dark CRT phosphor screen.
+ * Renders the media to its bone — zero continuous video underneath.
  */
 export const waveLinesEffect: EffectDefinition = {
   id: 'waveLines',
   label: 'Wave Lines',
   category: 'stylize',
   requiresPass: false,
-  costWeight: 1,
+  requiresSpatialSampling: true,
+  costWeight: 2,
   parameters: {
     frequency: {
       type: 'float',
       min: 5.0,
       max: 80.0,
-      default: 30.0,
+      default: 35.0,
       step: 1.0,
       audioModulatable: true,
     },
@@ -42,7 +45,7 @@ export const waveLinesEffect: EffectDefinition = {
       type: 'float',
       min: 0.0,
       max: 1.0,
-      default: 0.4,
+      default: 0.45,
       step: 0.05,
       audioModulatable: true,
     },
@@ -64,35 +67,50 @@ export const waveLinesEffect: EffectDefinition = {
     },
   },
   buildNode: (inputNode, uniforms, env) => {
-    const frequency = toNode(uniforms.frequency, 30.0).max(1.0);
-    const amplitude = toNode(uniforms.amplitude, 0.4);
+    const frequency = toNode(uniforms.frequency, 35.0).max(5.0);
+    const amplitude = toNode(uniforms.amplitude, 0.45);
     const speed = toNode(uniforms.speed, 1.0);
     const lineWidth = toNode(uniforms.lineWidth, 0.12);
     const time = env?.time ?? uniforms.time ?? float(0.0);
+    const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
-      const baseCol = inputNode;
-      const lum = rec601Luminance(baseCol.rgb);
+      const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
 
-      // Analog oscilloscope sine modulation + luminance vertical displacement
-      const wavePhase = st.x.mul(25.0).add(time.mul(speed.mul(3.0)));
-      const sineWave = sin(wavePhase).mul(amplitude.mul(0.15));
-      const lumDisplace = lum.sub(0.5).mul(amplitude.mul(0.35));
-      const totalDisplace = sineWave.add(lumDisplace);
+      // CRT oscilloscope void background
+      const bg = vec3(0.015, 0.015, 0.025);
 
-      // Distance to raster line center
-      const lineDist = fract(st.y.mul(frequency).add(totalDisplace)).sub(0.5).abs().mul(2.0);
+      const sampleFn = (coord: any) => {
+        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
+        if (typeof inputNode === 'function') return inputNode(coord);
+        return inputNode;
+      };
 
-      // Anti-aliased line stroke falloff via smoothstep
-      const stroke = smoothstep(lineWidth, float(0.0), lineDist);
+      // Discrete scanlines down the screen
+      const lineCount = frequency;
+      const scanlineIdx = floor(st.y.mul(lineCount));
+      const lineCenterY = scanlineIdx.add(0.5).div(lineCount);
 
-      // Illuminate raster lines while preserving scene exposure
-      const dimmedSource = baseCol.rgb.mul(0.25);
-      const brightLine = baseCol.rgb.mul(1.4).add(vec3(0.08, 0.15, 0.12));
-      const finalRGB = mix(dimmedSource, brightLine, stroke);
+      // Sample image along this scanline
+      const sampleCol = sampleFn(vec2(st.x as any, lineCenterY as any));
+      const lum = rec601Luminance(sampleCol.rgb);
 
-      return vec4(finalRGB, baseCol.a ?? float(1.0));
+      // Analog oscilloscope deflection: luminance pushes the beam vertically
+      const sineHum = sin(st.x.mul(25.0).add(time.mul(speed.mul(3.0)))).mul(0.005);
+      const waveDisplace = lum.mul(amplitude.mul(0.08)).add(sineHum);
+      const displacedLineY = lineCenterY.add(waveDisplace);
+
+      // Distance from pixel to the displaced waveform
+      const distInPixels = st.y.sub(displacedLineY).abs().mul(safeRes.y);
+      const stroke = smoothstep(lineWidth.mul(safeRes.y).max(1.2), float(0.0), distInPixels);
+
+      // Glowing oscilloscope phosphor line
+      const phosphorGreen = vec3(0.15, 1.0, 0.45);
+      const glowingLine = mix(phosphorGreen, sampleCol.rgb.mul(1.5), 0.5);
+
+      const finalRGB = mix(bg, glowingLine, stroke);
+      return vec4(finalRGB, sampleCol.a ?? float(1.0));
     })();
   },
 };

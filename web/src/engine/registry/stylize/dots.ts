@@ -1,7 +1,9 @@
 import {
   Fn,
   uv,
+  vec3,
   vec4,
+  floor,
   fract,
   smoothstep,
   mix,
@@ -20,21 +22,22 @@ function toNode(val: any, fallback = 0.0): any {
 
 /**
  * Modernized Dot Matrix Screen effect definition (D-01, D-05, D-20).
- * Grid of circular LED diodes sized by Rec. 601 luminance with smoothstep subpixel anti-aliasing
- * and preserved background bezel.
+ * Grid of discrete circular LED diodes sized by Rec. 601 luminance on a dark carbon chassis.
+ * Renders the media to its bone — zero continuous video underneath.
  */
 export const dotsEffect: EffectDefinition = {
   id: 'dots',
   label: 'Dot Matrix Screen',
   category: 'stylize',
   requiresPass: false,
-  costWeight: 1,
+  requiresSpatialSampling: true,
+  costWeight: 2,
   parameters: {
     spacing: {
       type: 'float',
       min: 4.0,
       max: 32.0,
-      default: 10.0,
+      default: 12.0,
       step: 1.0,
       unit: 'px',
       audioModulatable: true,
@@ -57,32 +60,47 @@ export const dotsEffect: EffectDefinition = {
     },
   },
   buildNode: (inputNode, uniforms, env) => {
-    const spacing = toNode(uniforms.spacing, 10.0).max(4.0);
+    const spacing = toNode(uniforms.spacing, 12.0).max(4.0);
     const radius = toNode(uniforms.radius, 1.0);
-    const bezel = toNode(uniforms.bezel, 0.2).clamp(0.0, 1.0);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
       const safeRes = vec2(resolution.x.max(1.0), resolution.y.max(1.0));
       const pixelCoord = st.mul(safeRes);
-      const cell = fract(pixelCoord.div(spacing)).sub(0.5);
-      const dist = cell.length();
 
-      const baseCol = inputNode;
-      const lum = rec601Luminance(baseCol.rgb);
-      const dotR = lum.mul(radius).mul(0.5).clamp(0.02, 0.48);
+      // Discrete LED cell grid
+      const cellCoord = floor(pixelCoord.div(spacing));
+      const cellCenterUV = cellCoord.mul(spacing).add(spacing.mul(0.5)).div(safeRes).clamp(0.0, 1.0);
 
-      // Subpixel anti-aliasing on dot aperture boundaries
-      const feather = float(0.04);
-      const dotMask = smoothstep(dotR.add(feather), dotR.sub(feather), dist);
+      const sampleFn = (coord: any) => {
+        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
+        if (typeof inputNode === 'function') return inputNode(coord);
+        return inputNode;
+      };
 
-      // Preserved bezel/ambient tone instead of pitch black void
-      const ambientColor = baseCol.rgb.mul(bezel.mul(0.4));
-      const illuminatedDot = baseCol.rgb.mul(1.15);
-      const finalRGB = mix(ambientColor, illuminatedDot, dotMask);
+      // Sample discrete color of this LED bulb
+      const cellCol = sampleFn(cellCenterUV);
+      const lum = rec601Luminance(cellCol.rgb);
 
-      return vec4(finalRGB, baseCol.a ?? float(1.0));
+      // Distance from pixel to center of its LED cell
+      const cellFrac = fract(pixelCoord.div(spacing)).sub(0.5);
+      const dist = cellFrac.length();
+
+      // Bulb aperture: sized by luminance
+      const maxRadius = float(0.48);
+      const dotR = lum.mul(radius).mul(0.48).clamp(0.04, maxRadius);
+
+      // Subpixel anti-aliasing
+      const dotMask = smoothstep(dotR.add(0.02), dotR.sub(0.02), dist);
+
+      // Chassis panel background (pure dark carbon matrix)
+      const panelColor = vec3(0.02, 0.02, 0.03);
+      // Discrete glowing LED bulb
+      const bulbColor = cellCol.rgb.mul(1.3).add(vec3(0.02));
+
+      const finalRGB = mix(panelColor, bulbColor, dotMask);
+      return vec4(finalRGB, cellCol.a ?? float(1.0));
     })();
   },
 };
