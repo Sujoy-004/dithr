@@ -105,7 +105,6 @@ export default function LeftRail() {
   const reorderStack = useStudioStore((s) => s.reorderStack);
   const toggleEffect = useStudioStore((s) => s.toggleEffect);
   const duplicateEffect = useStudioStore((s) => s.duplicateEffect);
-  const setSingleEffectFastPath = useStudioStore((s) => s.setSingleEffectFastPath);
 
   const ascii = useStudioStore((s) => s.ascii);
   const updateAscii = useStudioStore((s) => s.updateAscii);

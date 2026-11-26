@@ -19,7 +19,6 @@ import {
 import {
   useStudioStore,
   DEFAULT_AUDIO_STATE,
-  DEFAULT_INITIAL_STACK,
 } from '../store/useStudioStore';
 import AudioPanel from '../components/panels/AudioPanel';
 

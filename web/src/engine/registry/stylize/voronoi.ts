@@ -83,9 +83,9 @@ export const voronoiEffect: EffectDefinition = {
         return fract(vec2(sin(d1), sin(d2)).mul(43758.5453));
       };
 
-      let minDist = float(8.0);
-      let secondDist = float(8.0);
-      let closestOffset = vec2(0.0, 0.0);
+      let minDist: any = float(8.0);
+      let secondDist: any = float(8.0);
+      let closestOffset: any = vec2(0.0, 0.0);
 
       // 3x3 grid search for true cellular Voronoi
       for (let dy = -1; dy <= 1; dy++) {
