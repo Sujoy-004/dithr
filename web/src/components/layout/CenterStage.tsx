@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from 'react';
 import * as THREE from 'three/webgpu';
+import { X } from 'lucide-react';
 import { useStudioStore, registerVideoElement, registerPipeline } from '../../store/useStudioStore';
 import { StudioPipeline } from '../../engine/Pipeline';
 import { detectGpuCapabilities, TIER_CONFIGS } from '../../engine/capabilities';
@@ -12,13 +13,8 @@ import Dropzone from '../canvas/Dropzone';
 import MaskHandles from '../canvas/MaskHandles';
 
 /**
- * Center Stage (D-03, D-08, RELY-09, RELY-10): canvas viewport with
- * hardware-accelerated CSS transform layer, Three.js WebGPU / WebGL2 shader pipeline,
- * GPU capability detection, adaptive FPS throttling, and intelligent idle render pause.
- *
- * Stage-wide drag-and-drop (D-04, MEDIA-01): dropping a file anywhere over
- * the stage loads it; the standby dropzone card shows while no media is
- * loaded and its frame steps to solid hairline while dragging.
+ * Center Stage: responsive Three.js WebGPU / WebGL2 canvas viewport,
+ * actionable error banner, WebGPU fallback indicator, dropzone, and floating HUD.
  */
 export default function CenterStage() {
   const zoom = useStudioStore((s) => s.zoom);
@@ -35,6 +31,11 @@ export default function CenterStage() {
   const effectParams = useStudioStore((s) => s.effectParams);
   const activeStack = useStudioStore((s) => s.activeStack);
   const activeTier = useStudioStore((s) => s.activeTier);
+  const gpuEngine = useStudioStore((s) => s.gpuEngine);
+  const errorBanner = useStudioStore((s) => s.errorBanner);
+  const clearErrorBanner = useStudioStore((s) => s.clearErrorBanner);
+  const fallbackNoticeDismissed = useStudioStore((s) => s.fallbackNoticeDismissed);
+  const dismissFallbackNotice = useStudioStore((s) => s.dismissFallbackNotice);
   const setDetectedCapabilities = useStudioStore((s) => s.setDetectedCapabilities);
   const setRenderStatus = useStudioStore((s) => s.setRenderStatus);
   const setIsPlaying = useStudioStore((s) => s.setIsPlaying);
@@ -52,49 +53,52 @@ export default function CenterStage() {
   const audioEngineRef = useRef<AudioReactivityEngine>(new AudioReactivityEngine());
 
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(
-    null,
+    null
   );
   const [dragOver, setDragOver] = useState(false);
   const webcamActive = mediaType === 'webcam';
 
-  // 1. Detect GPU Capabilities on mount per D-08 and RELY-09
   useEffect(() => {
     void detectGpuCapabilities().then((caps) => {
       setDetectedCapabilities(caps);
     });
   }, [setDetectedCapabilities]);
 
-  // 2. Initialize Pipeline on mount and attach adaptive RAF loop with idle pause (RELY-10)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    let disposed = false;
     const pipeline = new StudioPipeline({ canvas });
     pipelineRef.current = pipeline;
     registerPipeline(pipeline);
 
-    // Parse deterministic test params: ?testMode=true&freezeTime=1.0&seed=42 (D-27)
-    const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const searchParams =
+      typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
     const freezeTimeParam = searchParams?.get('freezeTime') ?? undefined;
     const seedParam = searchParams?.get('seed') ?? undefined;
-    const frozenTime = freezeTimeParam && !isNaN(parseFloat(freezeTimeParam)) ? parseFloat(freezeTimeParam) : null;
-    const frozenSeed = seedParam && !isNaN(parseFloat(seedParam)) ? parseFloat(seedParam) : null;
+    const isTestMode = searchParams?.get('testMode') === 'true';
+    const frozenTime =
+      freezeTimeParam && !Number.isNaN(parseFloat(freezeTimeParam))
+        ? parseFloat(freezeTimeParam)
+        : null;
+    const frozenSeed =
+      seedParam && !Number.isNaN(parseFloat(seedParam)) ? parseFloat(seedParam) : null;
 
     const startTime = performance.now();
     let lastFrameTime = startTime;
 
     const loop = (time: number) => {
-      if (isPausedRef.current) return;
+      if (isPausedRef.current || disposed) return;
 
       const currentTier = useStudioStore.getState().activeTier;
       const targetFps = TIER_CONFIGS[currentTier]?.targetFps || 60;
-      const minInterval = 1000 / targetFps - 2; // small tolerance margin
+      const minInterval = 1000 / targetFps - 2;
 
       if (time - lastFrameTime >= minInterval) {
         const deltaMs = Math.max(1, Math.min(100, time - lastFrameTime));
         lastFrameTime = time;
 
-        // Audio reactivity modulation (D-11, D-12, D-14, FX-05)
         const currentAudioState = useStudioStore.getState().audioState;
         if (
           currentAudioState.enabled &&
@@ -111,10 +115,8 @@ export default function CenterStage() {
             for (const mapping of currentAudioState.mappings) {
               const pass = currentStack.find((p) => p.instanceId === mapping.passInstanceId);
               if (!pass || !pass.enabled) continue;
-
               const def = getEffectDefinition(pass.effectId);
               if (!def) continue;
-
               const schema = def.parameters[mapping.paramKey];
               if (!schema || (schema.type !== 'float' && schema.type !== 'int')) continue;
 
@@ -139,22 +141,82 @@ export default function CenterStage() {
       animIdRef.current = requestAnimationFrame(loop);
     };
 
-    pipeline
-      .init()
-      .then(() => {
-        if (frozenSeed !== null) {
-          pipeline.setSeed(frozenSeed);
-        }
-        pipeline.resize(canvas.clientWidth || 800, canvas.clientHeight || 600);
-        if (!isPausedRef.current) {
-          animIdRef.current = requestAnimationFrame(loop);
-        }
-      })
-      .catch((err) => {
-        console.warn('Studio shader pipeline init warning:', err);
-      });
+    const shouldRunContinuousLoop = () => {
+      const s = useStudioStore.getState();
+      if (isTestMode || s.mediaType === 'video' || s.mediaType === 'webcam') return true;
+      if (s.audioState.enabled && s.audioState.status === 'live') return true;
+      if (s.activeStack.some((p) => p.enabled && p.effectId === 'threeD')) return true;
+      return s.mediaType !== null;
+    };
 
-    // Handle document visibilitychange (tab hidden/backgrounded)
+    const startLoopIfNeeded = () => {
+      if (isPausedRef.current || disposed) return;
+      if (!shouldRunContinuousLoop()) {
+        pipeline.render(frozenTime !== null ? frozenTime : 0);
+        return;
+      }
+      if (!animIdRef.current) {
+        lastFrameTime = performance.now();
+        animIdRef.current = requestAnimationFrame(loop);
+      }
+    };
+
+    const bootPipeline = () => {
+      if (disposed) return;
+      pipeline
+        .init()
+        .then(() => {
+          if (disposed) return;
+          if (frozenSeed !== null) {
+            pipeline.setSeed(frozenSeed);
+          }
+          const state = useStudioStore.getState();
+          pipeline.syncStack(state.activeStack, state.activeTier);
+          pipeline.updateTone(state.tone);
+          pipeline.updateAscii(state.ascii);
+          pipeline.resize(canvas.clientWidth || 800, canvas.clientHeight || 600);
+          startLoopIfNeeded();
+        })
+        .catch((err) => {
+          console.warn('Studio shader pipeline init warning:', err);
+        });
+    };
+
+    let bootTimer: number | null = null;
+    let idleId: number | null = null;
+    let isBooted = false;
+    const ensureBooted = () => {
+      if (isBooted) {
+        startLoopIfNeeded();
+        return;
+      }
+      isBooted = true;
+      if (bootTimer !== null) {
+        window.clearTimeout(bootTimer);
+        bootTimer = null;
+      }
+      if (idleId !== null && typeof (window as any).cancelIdleCallback === 'function') {
+        (window as any).cancelIdleCallback(idleId);
+        idleId = null;
+      }
+      bootPipeline();
+    };
+
+    if (isTestMode || useStudioStore.getState().mediaType !== null) {
+      ensureBooted();
+    } else {
+      // Boot GPU pipeline on first media load or 3D activation; keeps standby TBT minimal
+      bootTimer = globalThis.setTimeout(ensureBooted, 12000);
+    }
+
+    const unsubMedia = useStudioStore.subscribe((state, prev) => {
+      if (!prev.mediaType && state.mediaType) {
+        ensureBooted();
+      } else if (prev.activeStack !== state.activeStack && state.activeStack.some((p) => p.effectId === 'threeD')) {
+        ensureBooted();
+      }
+    });
+
     const handleVisibilityChange = () => {
       if (document.hidden) {
         isPausedRef.current = true;
@@ -163,19 +225,16 @@ export default function CenterStage() {
           animIdRef.current = 0;
         }
         setRenderStatus('paused');
-      } else {
-        if (isPausedRef.current) {
-          isPausedRef.current = false;
-          setRenderStatus('active');
-          lastFrameTime = performance.now();
-          if (!animIdRef.current && pipelineRef.current) {
-            animIdRef.current = requestAnimationFrame(loop);
-          }
+      } else if (isPausedRef.current) {
+        isPausedRef.current = false;
+        setRenderStatus('active');
+        lastFrameTime = performance.now();
+        if (!animIdRef.current && pipelineRef.current) {
+          animIdRef.current = requestAnimationFrame(loop);
         }
       }
     };
 
-    // Handle container contentvisibilityautostatechange (off-screen scrolling)
     const handleContentVisibility = (e: Event) => {
       const isSkipped = (e as any).skipped;
       if (isSkipped) {
@@ -198,13 +257,16 @@ export default function CenterStage() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     const stageEl = stageSectionRef.current;
     if (stageEl) {
-      stageEl.addEventListener(
-        'contentvisibilityautostatechange' as any,
-        handleContentVisibility
-      );
+      stageEl.addEventListener('contentvisibilityautostatechange' as any, handleContentVisibility);
     }
 
     return () => {
+      disposed = true;
+      unsubMedia();
+      if (bootTimer !== null) window.clearTimeout(bootTimer);
+      if (idleId !== null && 'cancelIdleCallback' in window) {
+        (window as any).cancelIdleCallback(idleId);
+      }
       if (animIdRef.current) {
         cancelAnimationFrame(animIdRef.current);
         animIdRef.current = 0;
@@ -222,7 +284,6 @@ export default function CenterStage() {
     };
   }, [setRenderStatus]);
 
-  // 3. Synchronize tone, ascii, effect, active stack and parameters to pipeline
   useEffect(() => {
     if (pipelineRef.current) {
       pipelineRef.current.syncStack(activeStack, activeTier);
@@ -255,7 +316,6 @@ export default function CenterStage() {
     }
   }, [effectParams]);
 
-  // Restore base parameter uniforms when audio reactivity is disabled
   useEffect(() => {
     if (!audioState.enabled || audioState.status !== 'live') {
       const pipeline = pipelineRef.current;
@@ -273,7 +333,6 @@ export default function CenterStage() {
     }
   }, [audioState.enabled, audioState.status, audioState.mappings, activeStack]);
 
-  // 4. Adapt canvas sizing to quality tier and dimensions
   useEffect(() => {
     const pipeline = pipelineRef.current;
     if (!pipeline) return;
@@ -295,7 +354,6 @@ export default function CenterStage() {
     pipeline.resize(targetW, targetH);
   }, [activeTier, dimensions]);
 
-  // 5. Synchronize media texture to pipeline
   useEffect(() => {
     const pipeline = pipelineRef.current;
     if (!pipeline) return;
@@ -323,7 +381,6 @@ export default function CenterStage() {
     }
   }, [mediaType, mediaUrl, dimensions, webcamActive]);
 
-  // Register persistent video element on mount
   useEffect(() => {
     if (videoRef.current) {
       registerVideoElement(videoRef.current);
@@ -350,7 +407,6 @@ export default function CenterStage() {
   };
 
   const onPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
-    // Only capture pointer on the background stage itself, not when clicking dropzone
     const target = e.target as HTMLElement;
     if (target.closest('[role="button"]') || target.closest('button')) {
       return;
@@ -387,6 +443,12 @@ export default function CenterStage() {
     dragRef.current = null;
   };
 
+  const isTestMode =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('testMode') === 'true';
+  const hasThreeD = activeStack.some((p) => p.effectId === 'threeD' && p.enabled);
+  const aspectRatio = dimensions ? `${dimensions.width} / ${dimensions.height}` : '4 / 3';
+
   return (
     <section
       ref={stageSectionRef}
@@ -396,11 +458,52 @@ export default function CenterStage() {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      {/* Hidden file input always available on stage */}
+      {/* Actionable error banner */}
+      {errorBanner && (
+        <div
+          role="alert"
+          className="studio-glass absolute top-3 left-1/2 z-30 flex w-[min(92%,480px)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg px-4 py-3 text-control"
+        >
+          <div className="flex flex-col gap-0.5">
+            <span className="font-semibold text-max">{errorBanner.title}</span>
+            <span className="text-default">{errorBanner.detail}</span>
+            <span className="text-dim">{errorBanner.recovery}</span>
+          </div>
+          <button
+            type="button"
+            onClick={clearErrorBanner}
+            aria-label="Dismiss error"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-dim hover:bg-active hover:text-max"
+          >
+            <X size={14} aria-hidden />
+          </button>
+        </div>
+      )}
+
+      {/* WebGPU fallback notice */}
+      {!errorBanner && gpuEngine === 'webgl2' && !fallbackNoticeDismissed && (
+        <div
+          role="status"
+          className="studio-glass absolute top-3 left-1/2 z-20 flex max-w-[min(92%,500px)] -translate-x-1/2 items-center justify-between gap-3 rounded-full px-4 py-1.5 text-[11px] text-default"
+        >
+          <span>
+            WebGPU is unavailable in this browser. Running on WebGL2 fallback.
+          </span>
+          <button
+            type="button"
+            onClick={dismissFallbackNotice}
+            aria-label="Dismiss WebGL2 fallback notice"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-dim hover:bg-active hover:text-max"
+          >
+            <X size={12} aria-hidden />
+          </button>
+        </div>
+      )}
+
       <Dropzone dragActive={dragOver} />
 
       <div
-        className="absolute inset-0 flex touch-none items-center justify-center"
+        className="absolute inset-0 flex touch-none items-center justify-center p-3 pb-20 md:p-6 md:pb-16"
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: 'center center',
@@ -411,26 +514,30 @@ export default function CenterStage() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
       >
-        {/* Canvas and on-canvas overlay wrapper */}
         <div
-          className="relative block"
+          className="relative flex max-h-full max-w-full items-center justify-center"
           style={{
-            width: dimensions ? `${dimensions.width}px` : '800px',
-            height: dimensions ? `${dimensions.height}px` : '600px',
+            aspectRatio,
+            width: dimensions ? `min(100%, ${dimensions.width}px)` : 'min(100%, 800px)',
+            maxHeight: '100%',
           }}
         >
-          {/* WebGPU / WebGL2 Engine Canvas */}
           <canvas
             ref={canvasRef}
-            className="block w-full h-full bg-base"
+            className={`block h-full w-full bg-base ${
+              mediaType ? 'border border-hairline' : ''
+            }`}
+            style={
+              !mediaType && !isTestMode && !hasThreeD
+                ? { filter: 'brightness(0.06)' }
+                : undefined
+            }
             aria-label="Media viewport canvas"
           />
 
-          {/* Interactive Mask Handles Overlay (D-07, FX-03) */}
           <MaskHandles />
         </div>
 
-        {/* Single persistent in-viewport video playback element for video and live webcam */}
         <video
           ref={videoRef}
           playsInline
@@ -458,7 +565,7 @@ export default function CenterStage() {
                 pipelineRef.current.resize(el.videoWidth, el.videoHeight);
               }
             }
-            if (el.duration && !isNaN(el.duration)) {
+            if (el.duration && !Number.isNaN(el.duration)) {
               setDuration(el.duration);
             }
           }}

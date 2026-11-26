@@ -211,10 +211,10 @@ export default function MaskHandles() {
             width={`${width * 100}%`}
             height={`${height * 100}%`}
             fill="none"
-            stroke="var(--accent, #6366f1)"
+            stroke="var(--text-highlight, #e9ebf0)"
             strokeWidth="1.5"
             strokeDasharray="4 4"
-            opacity="0.75"
+            opacity="0.8"
           />
         ) : (
           <ellipse
@@ -223,10 +223,10 @@ export default function MaskHandles() {
             rx={`${radius * 100}%`}
             ry={`${radius * 100}%`}
             fill="none"
-            stroke="var(--accent, #6366f1)"
+            stroke="var(--text-highlight, #e9ebf0)"
             strokeWidth="1.5"
             strokeDasharray="4 4"
-            opacity="0.75"
+            opacity="0.8"
           />
         )}
       </svg>
@@ -237,7 +237,7 @@ export default function MaskHandles() {
         role="button"
         aria-label="Mask center handle. Use arrow keys to adjust."
         tabIndex={0}
-        className="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 cursor-move rounded-full border-2 border-white bg-accent p-1 shadow-md transition-transform hover:scale-125 focus:scale-125 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2"
+        className="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 cursor-move rounded-full border-2 border-base bg-highlight p-1 shadow-md transition-transform hover:scale-125 focus:scale-125"
         style={{
           left: `${centerX * 100}%`,
           top: `${centerY * 100}%`,
@@ -264,7 +264,7 @@ export default function MaskHandles() {
             : 'Mask radius handle. Use arrow keys to adjust.'
         }
         tabIndex={0}
-        className="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 rounded border border-white bg-accent p-1 shadow-md transition-transform hover:scale-125 focus:scale-125 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2"
+        className="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 border border-base bg-highlight p-1 shadow-md transition-transform hover:scale-125 focus:scale-125"
         style={{
           left: `${edgeHandleLeft}%`,
           top: `${edgeHandleTop}%`,

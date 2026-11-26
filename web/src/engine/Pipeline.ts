@@ -102,7 +102,8 @@ export class StudioPipeline {
     this.seedUniform = uniform(1.0);
 
     this.fallbackMaterial = new THREE.MeshBasicNodeMaterial();
-    this.fallbackMaterial.colorNode = vec4(0.06, 0.06, 0.06, 1.0);
+    // Linear-space match for #0c0d10 ink so standby canvas blends seamlessly with stage
+    this.fallbackMaterial.colorNode = vec4(0.004, 0.0045, 0.006, 1.0);
 
     const planeGeo = new THREE.PlaneGeometry(2, 2);
     this.displayMesh = new THREE.Mesh(planeGeo, this.fallbackMaterial);

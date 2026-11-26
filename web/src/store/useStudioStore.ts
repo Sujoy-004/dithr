@@ -32,6 +32,14 @@ interface MediaState {
   dimensions: Dimensions | null;
 }
 
+export interface StudioErrorBanner {
+  title: string;
+  detail: string;
+  recovery: string;
+}
+
+export type MobileSheetTab = 'closed' | 'media' | 'shaders' | 'adjust' | 'export' | 'more';
+
 interface StudioState extends MediaState {
   // Viewport HUD (STUDIO-03)
   zoom: number;
@@ -39,6 +47,17 @@ interface StudioState extends MediaState {
   setZoom: (zoom: number) => void;
   setPan: (pan: Pan) => void;
   resetHUD: () => void;
+
+  // Actionable error banner (replaces blocking alerts)
+  errorBanner: StudioErrorBanner | null;
+  setErrorBanner: (err: StudioErrorBanner | null) => void;
+  clearErrorBanner: () => void;
+  fallbackNoticeDismissed: boolean;
+  dismissFallbackNotice: () => void;
+
+  // Mobile bottom sheet state
+  mobileSheetTab: MobileSheetTab;
+  setMobileSheetTab: (tab: MobileSheetTab) => void;
 
   // Active effect selection (D-02)
   effect: EffectMode;
@@ -85,6 +104,7 @@ interface StudioState extends MediaState {
 
   // Media ingestion (MEDIA-01, MEDIA-02, D-04)
   loadMediaFile: (file: File, expectedType?: 'image' | 'video') => Promise<void>;
+  loadSampleImage: () => Promise<void>;
   startWebcam: () => Promise<void>;
   stopWebcam: () => void;
   clearMedia: () => void;
@@ -209,7 +229,6 @@ export const DEFAULT_THREED_STATE: ThreeDState = {
 const DEFAULT_PAN: Pan = { x: 0, y: 0 };
 const DEFAULT_ZOOM = 1;
 
-/** HUD zoom bounds: 10% .. 800% (interactive zoom buttons + wheel). */
 export const ZOOM_MIN = 0.1;
 export const ZOOM_MAX = 8;
 
@@ -234,26 +253,23 @@ function generateInstanceId(effectId: string): string {
   return `${effectId}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/**
- * Non-reactive media resources. MediaStream and object URLs must never live
- * in reactive state (T-02-03/T-02-04): they are disposed explicitly here.
- */
 let activeObjectUrl: string | null = null;
 let activeStream: MediaStream | null = null;
 let registeredVideo: HTMLVideoElement | null = null;
 let activeFile: File | null = null;
 
-/** Retrieve pristine active uploaded File for server-side audio fallback per D-05. */
 export function getActiveFile(): File | null {
   return activeFile;
 }
 
-/** Retrieve registered persistent <video> element. */
 export function getRegisteredVideo(): HTMLVideoElement | null {
   if (registeredVideo && typeof document !== 'undefined' && document.contains(registeredVideo)) {
     return registeredVideo;
   }
-  const el = typeof document !== 'undefined' ? (document.querySelector('video') as HTMLVideoElement | null) : null;
+  const el =
+    typeof document !== 'undefined'
+      ? (document.querySelector('video') as HTMLVideoElement | null)
+      : null;
   if (el) {
     registeredVideo = el;
     return el;
@@ -261,12 +277,10 @@ export function getRegisteredVideo(): HTMLVideoElement | null {
   return null;
 }
 
-/** Retrieve active webcam MediaStream if active. */
 export function getActiveStream(): MediaStream | null {
   return activeStream;
 }
 
-/** CenterStage registers its persistent <video> element for stream feeds. */
 export function registerVideoElement(el: HTMLVideoElement | null): void {
   registeredVideo = el;
   if (el) {
@@ -281,11 +295,6 @@ export function registerVideoElement(el: HTMLVideoElement | null): void {
   }
 }
 
-/**
- * Dropzone registers its hidden file input so the LeftRail source buttons can
- * open the same browser picker (single ingestion entry point through
- * loadMediaFile).
- */
 let browseHandler: ((filter?: 'image' | 'video') => void) | null = null;
 
 export function registerBrowseHandler(fn: ((filter?: 'image' | 'video') => void) | null): void {
@@ -294,7 +303,7 @@ export function registerBrowseHandler(fn: ((filter?: 'image' | 'video') => void)
 
 function stopStream(): void {
   if (!activeStream) return;
-  for (const track of activeStream.getTracks()) track.stop(); // camera indicator off (T-02-04)
+  for (const track of activeStream.getTracks()) track.stop();
   activeStream = null;
   if (registeredVideo) {
     registeredVideo.srcObject = null;
@@ -303,7 +312,7 @@ function stopStream(): void {
 
 function revokeUrl(): void {
   if (activeObjectUrl) {
-    URL.revokeObjectURL(activeObjectUrl); // unbounded memory guard (T-02-03)
+    URL.revokeObjectURL(activeObjectUrl);
     activeObjectUrl = null;
   }
   if (registeredVideo) {
@@ -320,9 +329,8 @@ function detachMediaPlayback(): void {
 function readImageDimensions(url: string): Promise<Dimensions> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () =>
-      resolve({ width: img.naturalWidth, height: img.naturalHeight }); // native, uncapped (D-04)
-    img.onerror = () => reject(new Error('image decode failed'));
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => reject(new Error('Image decode failed'));
     img.src = url;
   });
 }
@@ -338,6 +346,15 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   setZoom: (zoom) => set({ zoom: clampZoom(zoom) }),
   setPan: (pan) => set({ pan }),
   resetHUD: () => set({ zoom: DEFAULT_ZOOM, pan: DEFAULT_PAN }),
+
+  errorBanner: null,
+  setErrorBanner: (errorBanner) => set({ errorBanner }),
+  clearErrorBanner: () => set({ errorBanner: null }),
+  fallbackNoticeDismissed: false,
+  dismissFallbackNotice: () => set({ fallbackNoticeDismissed: true }),
+
+  mobileSheetTab: 'closed',
+  setMobileSheetTab: (mobileSheetTab) => set({ mobileSheetTab }),
 
   effect: 'ascii',
   setEffect: (effect) => {
@@ -531,7 +548,6 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   setLeftCollapsed: (collapsed) => set({ leftCollapsed: collapsed }),
   setRightCollapsed: (collapsed) => set({ rightCollapsed: collapsed }),
 
-  // GPU Capabilities & Quality Tiers
   detectedTier: 'high',
   activeTier: 'high',
   tierOverride: null,
@@ -559,7 +575,6 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     set({ renderStatus });
   },
 
-  // Audio Reactivity Engine (D-10, D-11, D-12, D-13, D-14, FX-05)
   audioState: DEFAULT_AUDIO_STATE,
 
   setAudioEnabled: (enabled) =>
@@ -627,7 +642,6 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       },
     })),
 
-  // 3D Scene & Camera State (D-15, D-16, D-17, FX-06)
   threeDState: DEFAULT_THREED_STATE,
 
   setThreeDPrimitive: (primitive) => {
@@ -669,7 +683,6 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       },
     })),
 
-  // Video playback
   isPlaying: false,
   isMuted: false,
   playbackTime: 0,
@@ -713,7 +726,6 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     set({ isMuted: nextMuted });
   },
 
-  /** Image/video ingestion via local blob URL — same-origin, never tainted (Pitfall 2). */
   loadMediaFile: async (file, expectedType) => {
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
     const imageExts = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'];
@@ -722,18 +734,37 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     const isVideo = file.type.startsWith('video/') || videoExts.includes(ext);
 
     if (expectedType === 'image' && !isImage) {
-      alert(`"${file.name}" is not an image file. Please select a PNG, JPG, WebP, or GIF image.`);
+      set({
+        errorBanner: {
+          title: 'Unsupported image file',
+          detail: `"${file.name}" is not a supported image format.`,
+          recovery: 'Select a PNG, JPG, WebP, or GIF file.',
+        },
+      });
       return;
     }
     if (expectedType === 'video' && !isVideo) {
-      alert(`"${file.name}" is not a video file. Please select an MP4 or WebM video.`);
+      set({
+        errorBanner: {
+          title: 'Unsupported video file',
+          detail: `"${file.name}" is not a supported video format.`,
+          recovery: 'Select an MP4 or WebM file.',
+        },
+      });
       return;
     }
     if (!isImage && !isVideo) {
-      alert(`Unsupported file format "${file.name}". Please upload an image or video.`);
+      set({
+        errorBanner: {
+          title: 'Unsupported file type',
+          detail: `"${file.name}" cannot be decoded by the studio.`,
+          recovery: 'Drop a PNG, JPG, WebP, GIF, MP4, or WebM file.',
+        },
+      });
       return;
     }
 
+    set({ errorBanner: null });
     stopWebcamInternal(set, get);
     revokeUrl();
 
@@ -753,13 +784,18 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
           playbackTime: 0,
           duration: 0,
         });
-        get().resetHUD(); // viewport fit: 100% zoom, centered
-      } catch (err) {
+        get().resetHUD();
+      } catch {
         revokeUrl();
-        console.warn('Image load failed:', err);
+        set({
+          errorBanner: {
+            title: 'Image failed to load',
+            detail: `"${file.name}" could not be decoded in this browser.`,
+            recovery: 'Try exporting the image as PNG, JPG, or WebP and dropping it again.',
+          },
+        });
       }
     } else {
-      // Direct video configuration with registered persistent element
       const el = getRegisteredVideo();
       if (el) {
         el.pause();
@@ -768,14 +804,13 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         el.loop = true;
         el.currentTime = 0;
         el.volume = 1.0;
-        el.muted = false; // default unmuted on user upload gesture
+        el.muted = false;
 
         const startPlayback = async () => {
           try {
             await el.play();
             set({ isPlaying: true, isMuted: false });
-          } catch (err) {
-            console.warn('Browser autoplay blocked unmuted audio; starting muted:', err);
+          } catch {
             el.muted = true;
             await el.play().then(() => set({ isPlaying: true })).catch(() => undefined);
             set({ isMuted: true });
@@ -792,9 +827,10 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         }
       }
 
-      const dimensions = el && el.videoWidth && el.videoHeight
-        ? { width: el.videoWidth, height: el.videoHeight }
-        : { width: 800, height: 600 };
+      const dimensions =
+        el && el.videoWidth && el.videoHeight
+          ? { width: el.videoWidth, height: el.videoHeight }
+          : { width: 800, height: 600 };
 
       set({
         mediaType: 'video',
@@ -810,12 +846,46 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     }
   },
 
-  /** Live webcam feed via getUserMedia (MEDIA-02). Same-origin stream. */
+  loadSampleImage: async () => {
+    set({ errorBanner: null });
+    stopWebcamInternal(set, get);
+    revokeUrl();
+
+    try {
+      const dimensions = await readImageDimensions('/sample-subject.webp');
+      set({
+        mediaType: 'image',
+        mediaUrl: '/sample-subject.webp',
+        mediaName: 'sample-crt.webp',
+        dimensions,
+        isPlaying: false,
+        playbackTime: 0,
+        duration: 0,
+      });
+      get().resetHUD();
+    } catch {
+      set({
+        errorBanner: {
+          title: 'Sample image unavailable',
+          detail: 'The bundled sample asset could not be loaded.',
+          recovery: 'Drop a PNG, JPG, or WebP image from your device instead.',
+        },
+      });
+    }
+  },
+
   startWebcam: async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert('Camera access is not supported by your browser.');
+      set({
+        errorBanner: {
+          title: 'Camera API unavailable',
+          detail: 'This browser or insecure context does not allow camera capture.',
+          recovery: 'Open dithr over HTTPS in a modern browser, or load an image or video file.',
+        },
+      });
       return;
     }
+    set({ errorBanner: null });
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -832,7 +902,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         el.pause();
         el.removeAttribute('src');
         el.srcObject = stream;
-        el.muted = true; // prevent acoustic feedback loop
+        el.muted = true;
         await el.play().catch((err) => console.warn('Webcam play warning:', err));
       }
 
@@ -852,23 +922,32 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       });
       get().resetHUD();
     } catch (err: any) {
-      console.error('Webcam access error:', err);
-      let msg = 'Unable to access camera: ' + (err.message || err.name);
-      if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        msg = 'Camera is already in use by another application or tab. Please close other camera apps and try again.';
-      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = 'Camera permission was denied. Please allow camera permissions in your browser address bar.';
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        msg = 'No video camera found on this device.';
+      let title = 'Camera could not start';
+      let detail = err?.message || 'Camera initialization failed.';
+      let recovery = 'Allow camera permission in your browser settings and retry.';
+
+      if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+        title = 'Camera is already in use';
+        detail = 'Another application or browser tab holds the camera stream.';
+        recovery = 'Close the other camera app or tab, then select Camera again.';
+      } else if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        title = 'Camera permission blocked';
+        detail = 'The browser blocked access to your camera.';
+        recovery = 'Click the camera icon in the address bar, allow permission, and retry.';
+      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+        title = 'No camera detected';
+        detail = 'No video capture device was reported by your system.';
+        recovery = 'Connect a camera or drop an image or video file onto the canvas.';
       }
-      alert(msg);
+
+      set({
+        errorBanner: { title, detail, recovery },
+      });
     }
   },
 
-  /** Stop all stream tracks and detach the video element (T-02-04). */
   stopWebcam: () => stopWebcamInternal(set, get),
 
-  /** Return the studio to blank-slate standby (D-04). */
   clearMedia: () => {
     detachMediaPlayback();
     if (registeredVideo) {
@@ -893,7 +972,6 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     get().resetHUD();
   },
 
-  /** Open the shared hidden file input registered by Dropzone. */
   openFileBrowser: (filter?: 'image' | 'video') => {
     if (!browseHandler) {
       console.warn('File browser not registered yet (Dropzone not mounted)');
@@ -908,11 +986,10 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
 
 function stopWebcamInternal(
   set: (partial: Partial<StudioState>) => void,
-  get: () => StudioState,
+  get: () => StudioState
 ): void {
   if (activeStream) {
     stopStream();
-    // Only clear the webcam identity if the current media IS the webcam feed.
     if (get().mediaType === 'webcam') {
       set({
         mediaType: null,

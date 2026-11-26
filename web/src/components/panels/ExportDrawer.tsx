@@ -1,22 +1,27 @@
 import { useState, useEffect } from 'react';
 import { useStudioStore } from '../../store/useStudioStore';
+import { TIER_CONFIGS } from '../../engine/capabilities';
 import { exportRasterImage } from '../../export/imageExport';
 import { exportAsciiText } from '../../export/textExport';
 import { exportAsciiSvg } from '../../export/svgExport';
 import ServerExportModal from '../modals/ServerExportModal';
+import ParameterSlider from '../ui/ParameterSlider';
 
 /**
- * Tabbed Export Drawer panel (D-03, D-04, RELY-03, RELY-04).
- * Provides triggers for PNG, JPEG, SVG, TXT, and Studio Engine MP4/GIF exports.
+ * Tabbed Export Drawer panel.
+ * Supports PNG, JPEG, TXT, SVG client exports and Server MP4/GIF transcoding.
+ * Discloses format, size/tier ceiling, and duration limits upfront and confirms
+ * completion with verb-matched toasts ("Export PNG" -> "Exported PNG").
  */
 export default function ExportDrawer() {
   const mediaType = useStudioStore((s) => s.mediaType);
   const mediaUrl = useStudioStore((s) => s.mediaUrl);
   const ascii = useStudioStore((s) => s.ascii);
+  const dimensions = useStudioStore((s) => s.dimensions);
+  const activeTier = useStudioStore((s) => s.activeTier);
 
   const [activeTab, setActiveTab] = useState<'image' | 'text' | 'vector' | 'clip'>('image');
 
-  // Automatically select the clip tab when video or webcam media is loaded
   useEffect(() => {
     if (mediaType === 'video' || mediaType === 'webcam') {
       setActiveTab('clip');
@@ -26,16 +31,18 @@ export default function ExportDrawer() {
   const [cols, setCols] = useState(100);
   const [svgMode, setSvgMode] = useState<'truecolor' | 'monochrome'>('truecolor');
 
-  // Progress state
   const [busy, setBusy] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [toastMsg, setToastMsg] = useState('');
 
-  // Server Export Modal state
   const [serverModalOpen, setServerModalOpen] = useState(false);
   const [serverFormat, setServerFormat] = useState<'mp4' | 'gif'>('mp4');
 
   const hasMedia = mediaType !== null;
+  const maxDim = TIER_CONFIGS[activeTier]?.maxDimension || 1080;
+  const outputSizeLabel = dimensions
+    ? `${Math.min(dimensions.width, maxDim)}×${Math.min(dimensions.height, maxDim)} max`
+    : `up to ${maxDim}px`;
 
   const getCanvas = (): HTMLCanvasElement | null => {
     return document.querySelector('canvas[aria-label="Media viewport canvas"]');
@@ -57,6 +64,11 @@ export default function ExportDrawer() {
     });
   };
 
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    window.setTimeout(() => setToastMsg(''), 3000);
+  };
+
   const handleRaster = async (format: 'png' | 'jpeg') => {
     const canvas = getCanvas();
     if (!canvas) return;
@@ -64,20 +76,19 @@ export default function ExportDrawer() {
     setProgressMsg(`Exporting ${format.toUpperCase()}...`);
     try {
       await exportRasterImage(canvas, format);
-      setToastMsg(`Downloaded ${format.toUpperCase()}!`);
+      showToast(`Exported ${format.toUpperCase()}`);
     } catch (err) {
       console.error(err);
-      setToastMsg('Export failed');
+      showToast(`Failed to export ${format.toUpperCase()}. Retry or switch tier.`);
     } finally {
       setBusy(false);
       setProgressMsg('');
-      setTimeout(() => setToastMsg(''), 3000);
     }
   };
 
   const handleText = async () => {
     setBusy(true);
-    setProgressMsg('Generating ASCII text...');
+    setProgressMsg('Exporting TXT...');
     try {
       const src = await getSourceElement();
       exportAsciiText(src, {
@@ -86,20 +97,19 @@ export default function ExportDrawer() {
         customChars: ascii.customChars,
         charAspect: ascii.charAspect,
       });
-      setToastMsg('Downloaded .txt!');
+      showToast('Exported TXT');
     } catch (err) {
       console.error(err);
-      setToastMsg('Export failed');
+      showToast('Failed to export TXT.');
     } finally {
       setBusy(false);
       setProgressMsg('');
-      setTimeout(() => setToastMsg(''), 3000);
     }
   };
 
   const handleSvg = async () => {
     setBusy(true);
-    setProgressMsg('Generating vector SVG...');
+    setProgressMsg('Exporting SVG...');
     try {
       const src = await getSourceElement();
       exportAsciiSvg(src, {
@@ -109,21 +119,23 @@ export default function ExportDrawer() {
         customChars: ascii.customChars,
         charAspect: ascii.charAspect,
       });
-      setToastMsg('Downloaded .svg!');
+      showToast('Exported SVG');
     } catch (err) {
       console.error(err);
-      setToastMsg('Export failed');
+      showToast('Failed to export SVG.');
     } finally {
       setBusy(false);
       setProgressMsg('');
-      setTimeout(() => setToastMsg(''), 3000);
     }
   };
 
   return (
-    <div className="flex flex-col gap-2 px-4 pb-3">
-      {/* Subtabs */}
-      <div className="grid grid-cols-4 gap-1 text-control" role="tablist" aria-label="Export format tabs">
+    <div className="flex flex-col gap-2.5 px-4 pb-3">
+      <div
+        className="grid grid-cols-4 gap-1 text-control"
+        role="tablist"
+        aria-label="Export format tabs"
+      >
         {(['image', 'text', 'vector', 'clip'] as const).map((tab) => (
           <button
             key={tab}
@@ -131,8 +143,10 @@ export default function ExportDrawer() {
             role="tab"
             aria-selected={activeTab === tab}
             onClick={() => setActiveTab(tab)}
-            className={`h-6 text-center transition-colors ${
-              activeTab === tab ? 'bg-active text-highlight' : 'bg-raised text-dim hover:text-base'
+            className={`h-7 border text-center transition-colors ${
+              activeTab === tab
+                ? 'border-highlight bg-active font-semibold text-max'
+                : 'border-hairline bg-raised text-dim hover:text-highlight'
             }`}
           >
             {tab}
@@ -140,127 +154,142 @@ export default function ExportDrawer() {
         ))}
       </div>
 
-      {/* Tab Panels */}
       {activeTab === 'image' && (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1.5">
+          <p className="text-[11px] text-dim">
+            On-device snapshot ({outputSizeLabel}) directly from GPU canvas.
+          </p>
           <button
             type="button"
             disabled={!hasMedia || busy}
             onClick={() => void handleRaster('png')}
-            className="flex h-6 items-center justify-between bg-raised px-2 text-control text-highlight hover:bg-active disabled:text-dim disabled:pointer-events-none"
+            className="flex h-8 items-center justify-between border border-hairline bg-raised px-2.5 text-control text-highlight hover:border-border-strong hover:bg-active disabled:pointer-events-none disabled:text-dim"
           >
-            <span>export PNG</span>
+            <span className="font-medium">Export PNG</span>
             <span className="tabular-nums text-dim">lossless</span>
           </button>
           <button
             type="button"
             disabled={!hasMedia || busy}
             onClick={() => void handleRaster('jpeg')}
-            className="flex h-6 items-center justify-between bg-raised px-2 text-control text-highlight hover:bg-active disabled:text-dim disabled:pointer-events-none"
+            className="flex h-8 items-center justify-between border border-hairline bg-raised px-2.5 text-control text-highlight hover:border-border-strong hover:bg-active disabled:pointer-events-none disabled:text-dim"
           >
-            <span>export JPEG</span>
-            <span className="tabular-nums text-dim">95%</span>
+            <span className="font-medium">Export JPEG</span>
+            <span className="tabular-nums text-dim">95% quality</span>
           </button>
         </div>
       )}
 
       {activeTab === 'text' && (
         <div className="flex flex-col gap-2">
-          <label className="flex h-4 items-center justify-between text-control">
-            <span>columns</span>
-            <span className="tabular-nums text-highlight">{cols}</span>
-          </label>
-          <input
-            type="range"
+          <p className="text-[11px] text-dim">
+            Plain Rec. 601 ASCII grid (.txt), {cols} columns wide.
+          </p>
+          <ParameterSlider
+            label="columns"
+            value={cols}
+            defaultValue={100}
             min={40}
             max={200}
             step={5}
-            value={cols}
-            onChange={(e) => setCols(Number(e.target.value))}
-            className="h-4 w-full cursor-ew-resize appearance-none bg-transparent"
+            isInt
+            format={(v) => `${Math.round(v)} cols`}
+            onChange={setCols}
           />
           <button
             type="button"
             disabled={!hasMedia || busy}
             onClick={() => void handleText()}
-            className="h-6 bg-raised px-2 text-left text-control text-highlight hover:bg-active disabled:text-dim disabled:pointer-events-none"
+            className="h-8 border border-hairline bg-raised px-2.5 text-left text-control font-medium text-highlight hover:border-border-strong hover:bg-active disabled:pointer-events-none disabled:text-dim"
           >
-            download ASCII .txt
+            Export TXT
           </button>
         </div>
       )}
 
       {activeTab === 'vector' && (
         <div className="flex flex-col gap-2">
-          <div className="flex h-6 items-center justify-between text-control">
+          <p className="text-[11px] text-dim">
+            Scalable SVG glyph grid ({cols} columns, {svgMode}).
+          </p>
+          <label className="flex h-7 items-center justify-between text-control text-default">
             <span>color mode</span>
             <select
               value={svgMode}
               onChange={(e) => setSvgMode(e.target.value as 'truecolor' | 'monochrome')}
-              className="h-6 bg-raised px-2 text-control text-highlight hover:bg-active"
+              className="h-7 border border-hairline bg-raised px-2 text-control text-highlight hover:bg-active"
             >
               <option value="truecolor">truecolor</option>
               <option value="monochrome">monochrome</option>
             </select>
-          </div>
+          </label>
           <button
             type="button"
             disabled={!hasMedia || busy}
             onClick={() => void handleSvg()}
-            className="h-6 bg-raised px-2 text-left text-control text-highlight hover:bg-active disabled:text-dim disabled:pointer-events-none"
+            className="h-8 border border-hairline bg-raised px-2.5 text-left text-control font-medium text-highlight hover:border-border-strong hover:bg-active disabled:pointer-events-none disabled:text-dim"
           >
-            download vector .svg
+            Export SVG
           </button>
         </div>
       )}
 
       {activeTab === 'clip' && (
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-col gap-1">
-            <span className="text-dim text-[10px] uppercase tracking-wider">Studio Engine Export</span>
-            <button
-              type="button"
-              disabled={!hasMedia || busy}
-              onClick={() => {
-                setServerFormat('mp4');
-                setServerModalOpen(true);
-              }}
-              className="flex h-7 items-center justify-between bg-raised px-2 text-control text-highlight border border-hairline hover:bg-active hover:border-[#a3a3a3] disabled:text-dim disabled:pointer-events-none transition-colors"
-            >
-              <span className="font-medium">export MP4 (H.264 HD)</span>
-              <span className="tabular-nums text-dim">1080p · Audio</span>
-            </button>
-            <button
-              type="button"
-              disabled={!hasMedia || busy}
-              onClick={() => {
-                setServerFormat('gif');
-                setServerModalOpen(true);
-              }}
-              className="flex h-7 items-center justify-between bg-raised px-2 text-control text-highlight border border-hairline hover:bg-active hover:border-[#a3a3a3] disabled:text-dim disabled:pointer-events-none transition-colors"
-            >
-              <span className="font-medium">export High-Res GIF</span>
-              <span className="tabular-nums text-dim">720p · Two-Pass</span>
-            </button>
-          </div>
+        <div className="flex flex-col gap-1.5">
+          <p className="text-[11px] text-dim">
+            Server export via FastAPI + FFmpeg. GIF client cap is 1 to 5 s; server allows up to 15 s GIF or 60 s MP4.
+          </p>
+          <button
+            type="button"
+            disabled={!hasMedia || busy}
+            onClick={() => {
+              setServerFormat('mp4');
+              setServerModalOpen(true);
+            }}
+            className="flex h-9 items-center justify-between gap-2 border border-hairline bg-raised px-2.5 text-control text-highlight hover:border-border-strong hover:bg-active disabled:pointer-events-none disabled:text-dim"
+          >
+            <span className="font-medium truncate">Export MP4 (H.264)</span>
+            <span className="shrink-0 tabular-nums text-[11px] text-dim">1080p / 60s max</span>
+          </button>
+          <button
+            type="button"
+            disabled={!hasMedia || busy}
+            onClick={() => {
+              setServerFormat('gif');
+              setServerModalOpen(true);
+            }}
+            className="flex h-9 items-center justify-between gap-2 border border-hairline bg-raised px-2.5 text-control text-highlight hover:border-border-strong hover:bg-active disabled:pointer-events-none disabled:text-dim"
+          >
+            <span className="font-medium truncate">Export GIF</span>
+            <span className="shrink-0 tabular-nums text-[11px] text-dim">720p / 15s max</span>
+          </button>
         </div>
       )}
 
-      {/* Toast Notification Indicator */}
+      {!hasMedia && (
+        <p className="text-[11px] text-dim">Load an image, video, or sample first to export.</p>
+      )}
+
       {toastMsg && (
-        <div className="text-control text-highlight py-1 bg-active px-2 text-center border border-border">
+        <div
+          role="status"
+          aria-live="polite"
+          className="border border-highlight bg-active px-2.5 py-1.5 text-center text-control font-medium text-max"
+        >
           {toastMsg}
         </div>
       )}
 
-      {/* Non-recording Progress Feedback */}
       {progressMsg && (
-        <div className="text-control text-highlight py-1 bg-active px-2 text-center animate-pulse">
+        <div
+          role="status"
+          aria-live="polite"
+          className="border border-hairline bg-raised px-2.5 py-1.5 text-center text-control text-highlight"
+        >
           {progressMsg}
         </div>
       )}
 
-      {/* Server Export Modal per D-01, D-02, D-03, D-04, D-05 */}
       <ServerExportModal
         isOpen={serverModalOpen}
         onClose={() => setServerModalOpen(false)}

@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronRight, PanelLeftClose, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { useStudioStore } from '../../store/useStudioStore';
 import { getEffectDefinition } from '../../engine/registry';
 import EffectInspector from '../panels/EffectInspector';
@@ -8,8 +9,10 @@ import ToneControls from '../panels/ToneControls';
 import ExportDrawer from '../panels/ExportDrawer';
 
 /**
- * Right docked rail (280px) — inspector groups (D-03): dynamic EffectInspector (SHADER-02, FX-01),
- * pre-tone sliders (SHADER-03), and tabbed ExportDrawer (D-08, MEDIA-03).
+ * Desktop right docked inspector rail (296px). Hidden on < 768px where
+ * MobileSheet renders controls as a bottom sheet.
+ * Keeps Parameters, Tone, and Export prominent (expanded by default) and
+ * Audio/3D tucked into collapsible accordions.
  */
 export default function RightRail() {
   const rightCollapsed = useStudioStore((s) => s.rightCollapsed);
@@ -20,6 +23,18 @@ export default function RightRail() {
   const audioState = useStudioStore((s) => s.audioState);
   const threeDState = useStudioStore((s) => s.threeDState);
 
+  const [openSections, setOpenSections] = useState({
+    params: true,
+    tone: true,
+    export: true,
+    audio: false,
+    threeD: false,
+  });
+
+  const toggleSection = (key: keyof typeof openSections) => {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
   const selectedPass = activeStack.find((p) => p.instanceId === selectedPassId);
   const def = selectedPass ? getEffectDefinition(selectedPass.effectId) : undefined;
   const effectTitle = def?.label || selectedPass?.effectId || 'none';
@@ -27,94 +42,135 @@ export default function RightRail() {
   if (rightCollapsed) {
     return (
       <aside
-        className="flex w-12 shrink-0 flex-col items-center gap-1 border-l border-hairline bg-base py-2"
+        className="hidden md:flex w-12 shrink-0 flex-col items-center gap-1 border-l border-hairline bg-base py-2"
         aria-label="Right rail (collapsed)"
       >
-        <RailButton label="expand right rail" onClick={toggleRightRail}>
-          <span aria-hidden>◨</span>
-        </RailButton>
-        <RailButton label="toggle left rail" onClick={toggleLeftRail}>
-          <span aria-hidden>◧</span>
-        </RailButton>
-        <span className="mt-8 -rotate-90 text-control text-dim whitespace-nowrap">
-          inspector · {effectTitle}
+        <button
+          type="button"
+          aria-label="expand right rail"
+          title="Expand right rail"
+          onClick={toggleRightRail}
+          className="flex h-8 w-8 items-center justify-center text-dim hover:bg-active hover:text-highlight"
+        >
+          <PanelRightOpen size={16} strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          aria-label="toggle left rail"
+          title="Toggle left rail"
+          onClick={toggleLeftRail}
+          className="flex h-8 w-8 items-center justify-center text-dim hover:bg-active hover:text-highlight"
+        >
+          <PanelLeftClose size={16} strokeWidth={1.75} />
+        </button>
+        <span className="mt-8 -rotate-90 whitespace-nowrap text-control text-dim">
+          {effectTitle}
         </span>
       </aside>
     );
   }
 
   return (
-    <>
-      {/* Mobile backdrop to dismiss drawer on tap */}
-      <div
-        className="fixed inset-0 z-20 bg-black/60 md:hidden"
-        onClick={toggleRightRail}
-        aria-hidden
-      />
-      <aside
-        className="fixed md:relative inset-y-6 md:inset-y-0 right-0 z-30 flex w-72 max-w-[85vw] shrink-0 flex-col overflow-y-auto border-l border-hairline bg-base shadow-2xl md:shadow-none"
-        aria-label="Right rail"
+    <aside
+      className="hidden md:flex w-[296px] shrink-0 flex-col overflow-y-auto border-l border-hairline bg-base"
+      aria-label="Right rail"
+    >
+      <CollapsibleGroup
+        title="Parameters"
+        state={effectTitle}
+        open={openSections.params}
+        onToggle={() => toggleSection('params')}
       >
-        <GroupHeader title="effect parameters" state={effectTitle} />
         <div className="px-4 pb-3">
           <EffectInspector />
         </div>
+      </CollapsibleGroup>
 
-        <GroupHeader
-          title="audio reactivity"
-          state={audioState.enabled && audioState.status === 'live' ? 'live' : 'off'}
-        />
-        <AudioPanel />
-
-        <GroupHeader
-          title="3d scene & camera"
-          state={threeDState.primitive}
-        />
-        <ThreeDPanel />
-
-        <GroupHeader title="pre-tone" state="rec.601" />
+      <CollapsibleGroup
+        title="Tone curve"
+        state="Rec. 601"
+        open={openSections.tone}
+        onToggle={() => toggleSection('tone')}
+      >
         <ToneControls />
+      </CollapsibleGroup>
 
-        <GroupHeader title="export / dispatch" state="client" />
+      <CollapsibleGroup
+        title="Export"
+        state="on-device / api"
+        open={openSections.export}
+        onToggle={() => toggleSection('export')}
+      >
         <ExportDrawer />
+      </CollapsibleGroup>
 
-        <div className="mt-auto flex justify-end border-t border-hairline p-2">
-          <RailButton label="collapse right rail" onClick={toggleRightRail}>
-            <span aria-hidden>◨</span>
-          </RailButton>
-        </div>
-      </aside>
-    </>
+      <CollapsibleGroup
+        title="Audio reactivity"
+        state={audioState.enabled && audioState.status === 'live' ? 'live' : 'off'}
+        open={openSections.audio}
+        onToggle={() => toggleSection('audio')}
+      >
+        <AudioPanel />
+      </CollapsibleGroup>
+
+      <CollapsibleGroup
+        title="3D scene"
+        state={threeDState.primitive}
+        open={openSections.threeD}
+        onToggle={() => toggleSection('threeD')}
+      >
+        <ThreeDPanel />
+      </CollapsibleGroup>
+
+      <div className="mt-auto flex justify-end border-t border-hairline p-2">
+        <button
+          type="button"
+          aria-label="collapse right rail"
+          title="Collapse right rail"
+          onClick={toggleRightRail}
+          className="flex h-8 w-8 items-center justify-center text-dim hover:bg-active hover:text-highlight"
+        >
+          <PanelRightClose size={16} strokeWidth={1.75} />
+        </button>
+      </div>
+    </aside>
   );
 }
 
-function GroupHeader({ title, state, children }: { title: string; state: string; children?: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between border-t border-hairline px-4 py-2 text-control text-dim first:border-t-0">
-      <span aria-hidden>− {title}</span>
-      {children ?? <span className="tabular-nums">{state}</span>}
-    </div>
-  );
-}
-
-function RailButton({
-  label,
-  onClick,
+function CollapsibleGroup({
+  title,
+  state,
+  open,
+  onToggle,
   children,
 }: {
-  label: string;
-  onClick: () => void;
+  title: string;
+  state: string;
+  open: boolean;
+  onToggle: () => void;
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className="flex h-6 w-8 items-center justify-center text-dim transition-colors duration-fast hover:bg-active hover:text-highlight"
-    >
-      {children}
-    </button>
+    <section className="border-t border-hairline first:border-t-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex h-10 w-full items-center justify-between px-4 text-control text-highlight hover:bg-raised transition-colors"
+      >
+        <span className="flex items-center gap-1.5 font-semibold">
+          {open ? (
+            <ChevronDown size={13} strokeWidth={2} aria-hidden />
+          ) : (
+            <ChevronRight size={13} strokeWidth={2} aria-hidden />
+          )}
+          <span>{title}</span>
+        </span>
+        <span className="max-w-[120px] truncate text-[11px] font-normal tabular-nums text-dim">
+          {state}
+        </span>
+      </button>
+      {open && children}
+    </section>
   );
 }

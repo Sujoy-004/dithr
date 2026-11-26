@@ -3,6 +3,7 @@ import type { ChangeEvent } from 'react';
 import { useStudioStore } from '../../store/useStudioStore';
 import { validateAndLoadGLB } from '../../services/meshLoader';
 import type { ThreeDPrimitiveType } from '../../types/studio';
+import ParameterSlider from '../ui/ParameterSlider';
 
 const PRIMITIVES: { id: ThreeDPrimitiveType; label: string }[] = [
   { id: 'torusKnot', label: 'Torus Knot' },
@@ -12,9 +13,7 @@ const PRIMITIVES: { id: ThreeDPrimitiveType; label: string }[] = [
 ];
 
 /**
- * 3D Mesh Ingestion & Camera Controls Panel (D-15, D-17, FX-06).
- * Renders primitive selector buttons, client-side GLB file validation & upload,
- * auto-rotation toggle/speed slider, and camera reset button.
+ * 3D Mesh Ingestion & Camera Controls Panel aligned with the monochrome studio palette.
  */
 export default function ThreeDPanel() {
   const threeDState = useStudioStore((s) => s.threeDState);
@@ -53,10 +52,9 @@ export default function ThreeDPanel() {
         addEffect('threeD', { primitive: 'custom' });
       }
     } catch (err: any) {
-      setUploadError(err?.message || 'Failed to load 3D mesh.');
+      setUploadError(err?.message || 'Failed to load 3D mesh. Verify the file is a valid GLB or GLTF under 50 MB.');
     } finally {
       setIsLoading(false);
-      // Reset input value so same file can be re-selected if desired
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -65,9 +63,8 @@ export default function ThreeDPanel() {
 
   return (
     <div className="flex flex-col gap-3 px-4 pb-3" aria-label="3D controls panel">
-      {/* Primitive Geometry Selector */}
       <div className="flex flex-col gap-1.5">
-        <span className="text-caption text-dim uppercase tracking-wider">Primitives</span>
+        <span className="text-[11px] font-semibold text-dim">Primitives</span>
         <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Primitive selection">
           {PRIMITIVES.map((prim) => {
             const isSelected = threeDState.primitive === prim.id;
@@ -78,10 +75,10 @@ export default function ThreeDPanel() {
                 role="radio"
                 aria-checked={isSelected}
                 onClick={() => onSelectPrimitive(prim.id)}
-                className={`flex h-8 items-center justify-center rounded border px-2 text-control transition-colors ${
+                className={`flex h-8 items-center justify-center border px-2 text-control transition-colors ${
                   isSelected
-                    ? 'border-accent bg-accent/15 text-accent font-medium'
-                    : 'border-hairline bg-surface/40 text-dim hover:border-hairline-strong hover:text-base'
+                    ? 'border-highlight bg-active font-semibold text-max'
+                    : 'border-hairline bg-raised text-default hover:border-border-strong hover:text-highlight'
                 }`}
               >
                 {prim.label}
@@ -91,9 +88,8 @@ export default function ThreeDPanel() {
         </div>
       </div>
 
-      {/* GLB File Upload */}
-      <div className="flex flex-col gap-1.5 border-t border-hairline pt-2">
-        <span className="text-caption text-dim uppercase tracking-wider">Custom Mesh (.glb / .gltf)</span>
+      <div className="flex flex-col gap-1.5 border-t border-hairline pt-2.5">
+        <span className="text-[11px] font-semibold text-dim">Custom mesh (GLB / GLTF under 50 MB)</span>
         <input
           ref={fileInputRef}
           type="file"
@@ -107,18 +103,18 @@ export default function ThreeDPanel() {
             type="button"
             disabled={isLoading}
             onClick={() => fileInputRef.current?.click()}
-            className="flex-1 h-8 rounded border border-hairline bg-surface/60 px-3 text-control text-base hover:border-hairline-strong transition-colors disabled:opacity-50"
+            className="h-8 flex-1 border border-hairline bg-raised px-3 text-control text-highlight hover:border-border-strong hover:bg-active transition-colors disabled:opacity-50"
           >
-            {isLoading ? 'Validating & Loading...' : 'Upload GLB File (< 50MB)'}
+            {isLoading ? 'Loading mesh...' : 'Upload GLB file'}
           </button>
           {threeDState.customMeshName && (
             <button
               type="button"
               onClick={() => onSelectPrimitive('custom')}
-              className={`h-8 px-2.5 rounded border text-control transition-colors ${
+              className={`h-8 border px-2.5 text-control transition-colors ${
                 threeDState.primitive === 'custom'
-                  ? 'border-accent bg-accent/15 text-accent font-medium'
-                  : 'border-hairline bg-surface/40 text-dim hover:text-base'
+                  ? 'border-highlight bg-active font-semibold text-max'
+                  : 'border-hairline bg-raised text-dim hover:text-highlight'
               }`}
               title={threeDState.customMeshName}
             >
@@ -127,68 +123,58 @@ export default function ThreeDPanel() {
           )}
         </div>
         {threeDState.customMeshName && (
-          <span className="text-caption text-dim truncate">
+          <span className="text-[11px] text-dim truncate">
             Loaded: {threeDState.customMeshName}
           </span>
         )}
         {uploadError && (
-          <div className="rounded border border-red-500/30 bg-red-500/10 p-2 text-caption text-red-400">
+          <div role="alert" className="border border-highlight bg-active p-2 text-[11px] text-highlight">
             {uploadError}
           </div>
         )}
       </div>
 
-      {/* Camera Orbit Controls (D-17) */}
-      <div className="flex flex-col gap-2 border-t border-hairline pt-2">
-        <span className="text-caption text-dim uppercase tracking-wider">Camera Orbit</span>
-        
-        {/* Auto-Rotate Toggle */}
-        <div className="flex items-center justify-between">
-          <span className="text-control text-base">Auto-Rotate</span>
+      <div className="flex flex-col gap-2 border-t border-hairline pt-2.5">
+        <span className="text-[11px] font-semibold text-dim">Camera orbit</span>
+
+        <div className="flex h-7 items-center justify-between">
+          <span className="text-control text-default">Auto-rotate</span>
           <button
             type="button"
             role="switch"
             aria-checked={threeDState.autoRotate}
             onClick={() => setThreeDAutoRotate(!threeDState.autoRotate)}
-            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none ${
-              threeDState.autoRotate ? 'bg-accent' : 'bg-surface'
+            className={`flex h-5 w-9 items-center border border-hairline px-0.5 transition-colors ${
+              threeDState.autoRotate ? 'bg-active' : 'bg-base'
             }`}
           >
             <span
-              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-base shadow-lg ring-0 transition-transform ${
-                threeDState.autoRotate ? 'translate-x-4' : 'translate-x-0'
+              className={`h-3.5 w-3.5 transition-transform ${
+                threeDState.autoRotate ? 'translate-x-4 bg-highlight' : 'translate-x-0 bg-dim'
               }`}
             />
           </button>
         </div>
 
-        {/* Auto-Rotate Speed Slider */}
         {threeDState.autoRotate && (
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between text-caption text-dim">
-              <span>Rotation Speed</span>
-              <span>{threeDState.autoRotateSpeed.toFixed(1)}x</span>
-            </div>
-            <input
-              type="range"
-              min="0.1"
-              max="5.0"
-              step="0.1"
-              value={threeDState.autoRotateSpeed}
-              onChange={(e) => setThreeDAutoRotateSpeed(parseFloat(e.target.value))}
-              className="h-1.5 w-full cursor-pointer appearance-none rounded bg-surface accent-accent"
-              aria-label="Auto-rotate speed"
-            />
-          </div>
+          <ParameterSlider
+            label="rotation speed"
+            value={threeDState.autoRotateSpeed}
+            defaultValue={1.0}
+            min={0.1}
+            max={5.0}
+            step={0.1}
+            format={(v) => `${v.toFixed(1)}x`}
+            onChange={setThreeDAutoRotateSpeed}
+          />
         )}
 
-        {/* Reset Camera Button */}
         <button
           type="button"
           onClick={resetThreeDCamera}
-          className="mt-1 h-8 rounded border border-hairline bg-surface/40 px-3 text-control text-dim hover:text-base hover:border-hairline-strong transition-colors"
+          className="h-8 border border-hairline bg-raised px-3 text-control text-default hover:border-border-strong hover:text-highlight transition-colors"
         >
-          Reset Camera View
+          Reset camera view
         </button>
       </div>
     </div>

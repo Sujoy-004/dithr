@@ -6,16 +6,15 @@ import QualityTierBadge from '../ui/QualityTierBadge';
 const ZOOM_STEP = 1.25;
 
 function formatTime(sec: number): string {
-  if (!sec || isNaN(sec) || !isFinite(sec)) return '0:00';
+  if (!sec || Number.isNaN(sec) || !Number.isFinite(sec)) return '0:00';
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
 /**
- * Floating viewport HUD pinned bottom-center of Center Stage (STUDIO-03):
- * Video playback (Play/Pause, Stop, Mute/Unmute, Time),
- * [-] [100%] [+] [Reset], native media dimensions, Eject button, dark/light theme toggle.
+ * Floating frosted-glass viewport HUD pinned above the bottom edge.
+ * Clears the mobile bottom sheet cleanly on narrow viewports.
  */
 export default function ViewportHUD() {
   const zoom = useStudioStore((s) => s.zoom);
@@ -36,56 +35,45 @@ export default function ViewportHUD() {
 
   return (
     <div
-      className="pointer-events-auto absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 bg-raised px-2 py-1 shadow-lg"
+      className="studio-glass pointer-events-auto absolute bottom-16 left-1/2 z-20 flex max-w-[calc(100vw-20px)] -translate-x-1/2 items-center gap-1 rounded-full px-2.5 py-1 md:bottom-3"
       role="toolbar"
       aria-label="Viewport controls"
     >
-      {/* Video Playback Controls */}
       {mediaType === 'video' && (
         <>
-          <HUDButton
-            label={isPlaying ? 'pause video' : 'play video'}
-            onClick={togglePlay}
-          >
+          <HUDButton label={isPlaying ? 'pause video' : 'play video'} onClick={togglePlay}>
             {isPlaying ? (
-              <Pause size={12} strokeWidth={1.5} className="text-highlight" />
+              <Pause size={13} strokeWidth={1.75} className="text-highlight" />
             ) : (
-              <Play size={12} strokeWidth={1.5} className="text-highlight" />
+              <Play size={13} strokeWidth={1.75} className="text-highlight" />
             )}
           </HUDButton>
           <HUDButton label="stop video" onClick={stopVideo}>
-            <Square size={12} strokeWidth={1.5} />
+            <Square size={12} strokeWidth={1.75} />
           </HUDButton>
-          <HUDButton
-            label={isMuted ? 'unmute audio' : 'mute audio'}
-            onClick={toggleMute}
-          >
+          <HUDButton label={isMuted ? 'unmute audio' : 'mute audio'} onClick={toggleMute}>
             {isMuted ? (
-              <span className="flex items-center gap-1 text-highlight hover:text-max px-1 bg-active border border-hairline">
-                <VolumeX size={12} strokeWidth={1.5} className="text-highlight" />
-                <span className="text-[10px] tracking-wider text-highlight font-semibold">unmute</span>
-              </span>
+              <VolumeX size={13} strokeWidth={1.75} className="text-highlight" />
             ) : (
-              <Volume2 size={12} strokeWidth={1.5} className="text-highlight" />
+              <Volume2 size={13} strokeWidth={1.75} className="text-highlight" />
             )}
           </HUDButton>
-          <span className="min-w-16 text-center text-control tabular-nums text-dim">
+          <span className="hidden sm:inline min-w-14 text-center text-control tabular-nums text-dim">
             {formatTime(playbackTime)} / {formatTime(duration)}
           </span>
-          <span aria-hidden className="mx-1 h-4 w-px bg-hairline" />
+          <span aria-hidden className="mx-0.5 h-4 w-px bg-hairline" />
         </>
       )}
 
-      {/* Viewport Zoom Controls */}
       <HUDButton
         label="zoom out"
         disabled={zoom <= ZOOM_MIN}
         onClick={() => setZoom(zoom / ZOOM_STEP)}
       >
-        <Minus size={12} strokeWidth={1.5} />
+        <Minus size={13} strokeWidth={1.75} />
       </HUDButton>
       <span
-        className="min-w-12 text-center text-control tabular-nums text-highlight"
+        className="min-w-10 text-center text-control tabular-nums text-highlight"
         aria-live="polite"
       >
         {Math.round(zoom * 100)}%
@@ -95,42 +83,41 @@ export default function ViewportHUD() {
         disabled={zoom >= ZOOM_MAX}
         onClick={() => setZoom(zoom * ZOOM_STEP)}
       >
-        <Plus size={12} strokeWidth={1.5} />
+        <Plus size={13} strokeWidth={1.75} />
       </HUDButton>
       <HUDButton label="reset pan and zoom" onClick={resetHUD}>
-        <span className="text-control">reset</span>
+        <span className="px-1 text-control">reset</span>
       </HUDButton>
 
-      <span aria-hidden className="mx-1 h-4 w-px bg-hairline" />
-
-      <span className="text-control tabular-nums text-dim">
-        {dimensions ? `${dimensions.width}×${dimensions.height}` : 'no media'}
+      <span aria-hidden className="hidden sm:inline mx-0.5 h-4 w-px bg-hairline" />
+      <span className="hidden sm:inline text-control tabular-nums text-dim">
+        {dimensions ? `${dimensions.width}x${dimensions.height}` : 'no media'}
       </span>
 
-      <span aria-hidden className="mx-1 h-4 w-px bg-hairline" />
+      <span aria-hidden className="hidden sm:inline mx-0.5 h-4 w-px bg-hairline" />
+      <div className="hidden sm:inline-flex">
+        <QualityTierBadge compact />
+      </div>
 
-      {/* GPU Quality Tier Badge with Override Popover */}
-      <QualityTierBadge compact />
-
-      {/* Media Eject / Close Button */}
       {mediaType && (
         <>
-          <span aria-hidden className="mx-1 h-4 w-px bg-hairline" />
+          <span aria-hidden className="mx-0.5 h-4 w-px bg-hairline" />
           <HUDButton label="eject media" onClick={clearMedia}>
-            <X size={12} strokeWidth={1.5} />
-            <span className="text-control text-dim">eject</span>
+            <X size={13} strokeWidth={1.75} />
+            <span className="hidden sm:inline text-control text-dim">eject</span>
           </HUDButton>
         </>
       )}
 
-      <span aria-hidden className="mx-1 h-4 w-px bg-hairline" />
-
-      {/* Theme Toggle */}
-      <HUDButton label={`switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={toggleTheme}>
+      <span aria-hidden className="mx-0.5 h-4 w-px bg-hairline" />
+      <HUDButton
+        label={`switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+        onClick={toggleTheme}
+      >
         {theme === 'dark' ? (
-          <Sun size={12} strokeWidth={1.5} />
+          <Sun size={13} strokeWidth={1.75} />
         ) : (
-          <Moon size={12} strokeWidth={1.5} />
+          <Moon size={13} strokeWidth={1.75} />
         )}
       </HUDButton>
     </div>
@@ -155,7 +142,7 @@ function HUDButton({
       title={label}
       onClick={onClick}
       disabled={disabled}
-      className="flex h-6 min-w-6 items-center justify-center gap-1 px-1 text-default transition-colors duration-fast enabled:hover:bg-active enabled:hover:text-highlight disabled:text-dim disabled:opacity-50"
+      className="flex h-8 min-w-8 items-center justify-center gap-1 rounded-full px-1.5 text-default transition-colors enabled:hover:bg-active enabled:hover:text-highlight disabled:text-dim disabled:opacity-40"
     >
       {children}
     </button>

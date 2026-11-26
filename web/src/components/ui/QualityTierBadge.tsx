@@ -16,7 +16,6 @@ export default function QualityTierBadge({ compact = false }: QualityTierBadgePr
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Close popover when clicking outside
   useEffect(() => {
     if (!isOpen) return;
     const handleOutsideClick = (e: MouseEvent) => {
@@ -24,8 +23,15 @@ export default function QualityTierBadge({ compact = false }: QualityTierBadgePr
         setIsOpen(false);
       }
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
     document.addEventListener('pointerdown', handleOutsideClick);
-    return () => document.removeEventListener('pointerdown', handleOutsideClick);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsideClick);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isOpen]);
 
   const tierShort = activeTier === 'high' ? 'HIGH' : activeTier === 'medium' ? 'MED' : 'LOW';
@@ -40,17 +46,17 @@ export default function QualityTierBadge({ compact = false }: QualityTierBadgePr
     {
       value: 'high',
       label: 'High (1080p canvas, full shader passes, 60 FPS)',
-      desc: 'Uncompromised visual fidelity for desktop GPUs',
+      desc: 'Full fidelity for desktop GPUs',
     },
     {
       value: 'medium',
       label: 'Medium (720p canvas, optimized passes, 30 FPS)',
-      desc: 'Balanced performance for laptops and mobile devices',
+      desc: 'Balanced performance for laptops and tablets',
     },
     {
       value: 'low',
       label: 'Low (480p canvas, minimal passes, 30 FPS)',
-      desc: 'Lightweight rendering for low-power or legacy hardware',
+      desc: 'Lightweight rendering for low-power hardware',
     },
   ];
 
@@ -59,25 +65,28 @@ export default function QualityTierBadge({ compact = false }: QualityTierBadgePr
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
         aria-label={`Quality Tier: ${tierShort}, Engine: ${engineShort}. Click to switch quality tier.`}
-        title="Click to switch quality tier"
-        className={`flex h-5 items-center gap-1 border px-1.5 text-[10px] font-mono transition-colors hover:border-[#a3a3a3] ${
-          isOpen ? 'bg-active text-highlight border-[#a3a3a3]' : 'border-hairline text-highlight bg-raised'
+        title="Switch quality tier"
+        className={`flex h-7 items-center gap-1.5 border px-2 text-[11px] font-mono transition-colors ${
+          isOpen
+            ? 'border-highlight bg-active text-max'
+            : 'border-hairline bg-raised text-highlight hover:border-border-strong'
         }`}
       >
         <span>[TIER: {tierShort}]</span>
-        {!compact && <span className="text-dim">[{engineShort}]</span>}
+        {!compact && <span className="hidden sm:inline text-dim">[{engineShort}]</span>}
       </button>
 
       {isOpen && (
         <div
           role="dialog"
           aria-label="Quality tier selection"
-          className="absolute right-0 bottom-full mb-1 z-50 w-72 border border-border bg-[#151515] p-2 shadow-2xl text-[11px] font-mono sm:bottom-auto sm:top-full sm:mt-1"
+          className="studio-glass absolute right-0 bottom-full mb-2 z-50 w-72 max-w-[calc(100vw-24px)] rounded-lg p-2.5 text-control sm:bottom-auto sm:top-full sm:mt-2"
         >
-          <div className="mb-2 flex items-center justify-between border-b border-border pb-1">
-            <span className="text-highlight font-semibold">Switch Quality Tier</span>
-            <span className="text-[10px] text-dim">{engineShort}</span>
+          <div className="mb-2 flex items-center justify-between border-b border-hairline pb-1.5">
+            <span className="font-semibold text-highlight">Switch Quality Tier</span>
+            <span className="text-[11px] font-mono text-dim">{engineShort}</span>
           </div>
 
           <div className="flex flex-col gap-1.5" role="radiogroup">
@@ -93,19 +102,22 @@ export default function QualityTierBadge({ compact = false }: QualityTierBadgePr
                     setTierOverride(opt.value);
                     setIsOpen(false);
                   }}
-                  className={`flex flex-col items-start gap-0.5 p-1.5 text-left border transition-colors ${
+                  className={`flex flex-col items-start gap-0.5 rounded border p-2 text-left transition-colors ${
                     isSelected
-                      ? 'border-[#a3a3a3] bg-active text-highlight'
-                      : 'border-hairline bg-base text-dim hover:border-[#a3a3a3] hover:text-highlight'
+                      ? 'border-highlight bg-active text-max'
+                      : 'border-hairline bg-base/70 text-default hover:border-border-strong hover:text-highlight'
                   }`}
                 >
-                  <div className="flex items-center gap-1.5 font-medium">
-                    <span>{isSelected ? '●' : '○'}</span>
+                  <div className="flex items-center gap-2 font-medium">
+                    <span
+                      aria-hidden
+                      className={`inline-block h-2 w-2 border ${
+                        isSelected ? 'border-highlight bg-highlight' : 'border-dim'
+                      }`}
+                    />
                     <span>{opt.label}</span>
                   </div>
-                  <span className="pl-4 text-[9px] text-dim leading-tight">
-                    {opt.desc}
-                  </span>
+                  <span className="pl-4 text-[11px] text-dim leading-snug">{opt.desc}</span>
                 </button>
               );
             })}

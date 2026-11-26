@@ -1,14 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStudioStore } from './store/useStudioStore';
 import Header from './components/layout/Header';
 import LeftRail from './components/layout/LeftRail';
 import CenterStage from './components/layout/CenterStage';
 import RightRail from './components/layout/RightRail';
+import MobileSheet from './components/layout/MobileSheet';
 
 /**
- * Docked studio shell (D-03): 24px titlebar, three-column workspace
- * (LeftRail 240px / CenterStage flex / RightRail 280px), 24px statusbar.
- * Theme is applied to the document root so token overrides cascade everywhere.
+ * Studio shell: desktop three-column workspace (LeftRail / CenterStage / RightRail)
+ * and mobile full-height canvas with frosted-glass bottom sheet.
  */
 export default function App() {
   const theme = useStudioStore((s) => s.theme);
@@ -19,13 +19,19 @@ export default function App() {
   const setLeftCollapsed = useStudioStore((s) => s.setLeftCollapsed);
   const setRightCollapsed = useStudioStore((s) => s.setRightCollapsed);
 
+  const [isDesktop, setIsDesktop] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true
+  );
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
   useEffect(() => {
     const handleResize = () => {
-      if (window.innerWidth < 768) {
+      const desktop = window.innerWidth >= 768;
+      setIsDesktop(desktop);
+      if (!desktop) {
         setLeftCollapsed(true);
         setRightCollapsed(true);
       }
@@ -44,28 +50,23 @@ export default function App() {
     <div className="flex h-full w-full flex-col bg-base text-default">
       <Header />
 
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <LeftRail />
+      <main className="relative flex min-h-0 flex-1 overflow-hidden">
+        {isDesktop && <LeftRail />}
         <CenterStage />
-        <RightRail />
-      </div>
+        {isDesktop && <RightRail />}
+        {!isDesktop && <MobileSheet />}
+      </main>
 
       <footer
-        className="flex h-6 shrink-0 items-center justify-between border-t border-hairline px-2 text-control text-dim select-none"
+        className="hidden md:flex h-7 shrink-0 items-center justify-between border-t border-hairline px-3 text-[11px] text-dim select-none"
         role="contentinfo"
       >
         <span className="tabular-nums truncate">
           zoom {Math.round(zoom * 100)}%
-          {dimensions ? ` · ${dimensions.width}×${dimensions.height}` : ''}
+          {dimensions ? ` / ${dimensions.width}x${dimensions.height}` : ''}
         </span>
-        <span
-          className={`tabular-nums truncate font-mono ${
-            renderStatus === 'active' ? 'text-dim' : 'text-highlight'
-          }`}
-        >
-          {renderStatusText}
-        </span>
-        <span className="truncate">rec.601 linear</span>
+        <span className="tabular-nums truncate text-highlight">{renderStatusText}</span>
+        <span className="truncate">Rec. 601 Linear</span>
       </footer>
     </div>
   );
