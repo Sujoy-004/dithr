@@ -1,9 +1,9 @@
 import * as THREE from 'three/webgpu';
 import { uniform, texture, vec4, float } from 'three/tsl';
-import { sRGBToLinear, linearTosRGB } from '../color/colorSpace';
 import { applyBlendMode, effectRegistry, EffectRegistry } from '../registry/index';
 import type {
   ActiveEffectPass,
+  EffectDefinition,
   EffectEnvironment,
 } from '../registry/types';
 
@@ -52,8 +52,9 @@ export function computeTopologyHash(stack: ActiveEffectPass[]): string {
 }
 
 /**
- * Plans execution stages by fusing contiguous pointwise passes (requiresPass === false)
- * into a single FusedFragmentStage, and splitting at passes requiring intermediate render targets (D-21).
+ * Plans execution stages by fusing contiguous pointwise passes plus at most one spatial pass
+ * (!def.requiresPass) into a fused_fragment stage, and splitting whenever a requiresPass or
+ * a second spatial pass follows an existing pass in the current stage (D-21).
  */
 export function planExecutionStages(
   stack: ActiveEffectPass[],
@@ -67,13 +68,19 @@ export function planExecutionStages(
   const stages: ExecutionStage[] = [];
   let currentPasses: ActiveEffectPass[] = [];
   let currentStageHasIntermediate = false;
+  let currentStageHasSpatial = false;
 
   for (let i = 0; i < activePasses.length; i++) {
     const pass = activePasses[i];
     const def = registry.get(pass.effectId);
     const requiresPass = def?.requiresPass ?? false;
+    const isSpatial = def?.spatial ?? false;
 
-    if (requiresPass && currentPasses.length > 0) {
+    const shouldSplit =
+      currentPasses.length > 0 &&
+      (requiresPass || (isSpatial && currentStageHasSpatial));
+
+    if (shouldSplit) {
       stages.push({
         id: `stage_${stages.length}`,
         type: currentStageHasIntermediate ? 'intermediate_target' : 'fused_fragment',
@@ -82,10 +89,14 @@ export function planExecutionStages(
       });
       currentPasses = [pass];
       currentStageHasIntermediate = true;
+      currentStageHasSpatial = isSpatial;
     } else {
       currentPasses.push(pass);
       if (requiresPass) {
         currentStageHasIntermediate = true;
+      }
+      if (isSpatial) {
+        currentStageHasSpatial = true;
       }
     }
   }
@@ -102,10 +113,30 @@ export function planExecutionStages(
   return stages;
 }
 
+function resolveUniformValue(
+  paramKey: string,
+  paramValue: any,
+  def: EffectDefinition
+): any {
+  const schema = def.parameters?.[paramKey];
+  if (schema?.type === 'select' && Array.isArray(schema.options)) {
+    const idx = Math.max(0, schema.options.indexOf(String(paramValue)));
+    return uniform(idx);
+  }
+  if (typeof paramValue === 'number') {
+    return uniform(paramValue);
+  }
+  if (typeof paramValue === 'boolean') {
+    return uniform(paramValue ? 1.0 : 0.0);
+  }
+  return paramValue;
+}
+
 /**
  * Compiles a planned execution stage graph into TSL MeshBasicNodeMaterial pipelines (D-03, D-06, D-21).
- * Fuses pointwise passes into unified fragment nodes, applies linear-light compositing and blend modes,
- * and attaches uniform references for zero-recompile slider edits.
+ * Operates natively in Three.js Linear working color space (no double sRGB/Linear conversions),
+ * wires env.sampleAt across TextureNodes, allocates HalfFloatType intermediate FBOs, and binds
+ * live uniforms (including select option indices) for zero-recompile edits.
  */
 export function compileGraph(
   sourceNode: any,
@@ -116,8 +147,15 @@ export function compileGraph(
 ): CompiledPipeline {
   const stageDescriptors: StageDescriptor[] = [];
   const dummyTexture = new THREE.Texture();
+  dummyTexture.minFilter = THREE.LinearFilter;
+  dummyTexture.magFilter = THREE.LinearFilter;
+  dummyTexture.generateMipmaps = false;
+  (dummyTexture as any).isRenderTargetTexture = true;
 
-  // If no stages are active, compile a direct passthrough stage
+  const standbyColor = vec4(0.004, 0.0045, 0.006, 1.0);
+  const preToneDef = env?.preToneActive && env?.preToneUniforms ? registry.get('tone') : undefined;
+
+  // If no stages are active, compile a direct passthrough stage (with optional Stage-0 pre-tone)
   if (stages.length === 0) {
     const passthroughStage: ExecutionStage = {
       id: 'stage_0',
@@ -125,8 +163,11 @@ export function compileGraph(
       passes: [],
       requiresTarget: false,
     };
-    const inputColor = sourceNode ? sRGBToLinear(sourceNode) : vec4(0.06, 0.06, 0.06, 1.0);
-    const finalColor = linearTosRGB(inputColor);
+
+    let finalColor = sourceNode ? sourceNode : standbyColor;
+    if (preToneDef && env?.preToneUniforms) {
+      finalColor = preToneDef.buildNode(finalColor, env.preToneUniforms, env);
+    }
 
     const mat = new THREE.MeshBasicNodeMaterial();
     mat.colorNode = finalColor;
@@ -149,43 +190,62 @@ export function compileGraph(
     };
   }
 
-  // Compile each stage
+  // Compile each stage in Linear working light
   for (let stageIdx = 0; stageIdx < stages.length; stageIdx++) {
     const stage = stages[stageIdx];
-    const isFinalStage = stageIdx === stages.length - 1;
     let inputTextureNode: any = null;
+    let rawSampleAt: ((uvCoord: any) => any) | undefined;
     let currentInput: any;
 
     if (stageIdx === 0) {
-      // Stage 0: takes sourceNode decoded to linear light
-      currentInput = sourceNode ? sRGBToLinear(sourceNode) : vec4(0.06, 0.06, 0.06, 1.0);
+      currentInput = sourceNode ? sourceNode : standbyColor;
+      if (sourceNode && typeof sourceNode.sample === 'function') {
+        rawSampleAt = (uvCoord: any) => sourceNode.sample(uvCoord);
+      }
+
+      if (preToneDef && env?.preToneUniforms) {
+        const preToneUniforms = env.preToneUniforms;
+        currentInput = preToneDef.buildNode(currentInput, preToneUniforms, env);
+        if (rawSampleAt) {
+          const baseSampleFn = rawSampleAt;
+          rawSampleAt = (uvCoord: any) =>
+            preToneDef.buildNode(baseSampleFn(uvCoord), preToneUniforms, env);
+        }
+      }
     } else {
-      // Subsequent stages: sample from intermediate target texture node
       inputTextureNode = texture(dummyTexture);
       currentInput = inputTextureNode;
+      rawSampleAt = (uvCoord: any) => inputTextureNode.sample(uvCoord);
     }
 
     let current = currentInput;
+    let seenSpatialInStage = false;
+    const pointwisePrefix: Array<{
+      def: EffectDefinition;
+      passUniforms: Record<string, any>;
+      intUniform: any;
+      blendMode: ActiveEffectPass['blendMode'];
+    }> = [];
 
     for (const pass of stage.passes) {
       const def = registry.get(pass.effectId);
       if (!def) continue;
 
-      // Ensure uniforms are registered for this pass instance
-      const passUniforms: Record<string, any> = {};
-      const params = pass.parameters || {};
+      // Merge schema defaults with pass parameters so every schema parameter has a live uniform
+      const mergedParams: Record<string, any> = {};
+      for (const [k, s] of Object.entries(def.parameters)) {
+        mergedParams[k] = s.default;
+      }
+      if (pass.parameters) {
+        Object.assign(mergedParams, pass.parameters);
+      }
 
-      for (const [paramKey, paramValue] of Object.entries(params)) {
+      const passUniforms: Record<string, any> = {};
+      for (const [paramKey, paramValue] of Object.entries(mergedParams)) {
         const uKey = `${pass.instanceId}:${paramKey}`;
         let u = uniformsMap.get(uKey);
         if (!u) {
-          if (typeof paramValue === 'number') {
-            u = uniform(paramValue);
-          } else if (typeof paramValue === 'boolean') {
-            u = uniform(paramValue ? 1.0 : 0.0);
-          } else {
-            u = paramValue;
-          }
+          u = resolveUniformValue(paramKey, paramValue, def);
           uniformsMap.set(uKey, u);
         }
         passUniforms[paramKey] = u;
@@ -199,18 +259,49 @@ export function compileGraph(
         uniformsMap.set(intKey, intUniform);
       }
 
-      // Build effect output in linear light
-      const effectOutput = def.buildNode(current, passUniforms, env);
+      // Build stage-scoped env.sampleAt for passes prior to or at the single spatial pass
+      let passSampleAt: ((uvCoord: any) => any) | undefined;
+      if (!seenSpatialInStage && rawSampleAt) {
+        if (pointwisePrefix.length === 0) {
+          passSampleAt = rawSampleAt;
+        } else {
+          const baseSampler = rawSampleAt;
+          const prefixSnapshot = pointwisePrefix.slice();
+          passSampleAt = (uvCoord: any) => {
+            let c = baseSampler(uvCoord);
+            for (const prev of prefixSnapshot) {
+              const out = prev.def.buildNode(c, prev.passUniforms, {
+                ...env,
+                sampleAt: undefined,
+              });
+              c = applyBlendMode(c, out, prev.blendMode, prev.intUniform);
+            }
+            return c;
+          };
+        }
+      }
 
-      // Apply row blend mode and intensity in linear light (D-03, D-06)
+      const passEnv: EffectEnvironment = {
+        ...env,
+        sampleAt: passSampleAt,
+      };
+
+      const effectOutput = def.buildNode(current, passUniforms, passEnv);
       current = applyBlendMode(current, effectOutput, pass.blendMode, intUniform);
+
+      if (def.spatial || def.requiresPass) {
+        seenSpatialInStage = true;
+      } else if (!seenSpatialInStage) {
+        pointwisePrefix.push({
+          def,
+          passUniforms,
+          intUniform,
+          blendMode: pass.blendMode,
+        });
+      }
     }
 
-    // If final stage, encode Linear Light -> sRGB (D-06); otherwise output linear for next stage
-    const outputColorNode = isFinalStage
-      ? linearTosRGB(current)
-      : vec4(current.rgb, current.a ?? float(1.0));
-
+    const outputColorNode = vec4(current.rgb, current.a ?? float(1.0));
     const material = new THREE.MeshBasicNodeMaterial();
     material.colorNode = outputColorNode;
     material.needsUpdate = true;
@@ -221,7 +312,7 @@ export function compileGraph(
       colorNode: outputColorNode,
       inputTextureNode,
       targetDescriptor: stage.requiresTarget
-        ? { format: THREE.RGBAFormat, type: THREE.UnsignedByteType }
+        ? { format: THREE.RGBAFormat, type: THREE.HalfFloatType }
         : undefined,
     });
   }

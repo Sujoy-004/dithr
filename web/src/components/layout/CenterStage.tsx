@@ -27,8 +27,6 @@ export default function CenterStage() {
   const setDimensions = useStudioStore((s) => s.setDimensions);
   const tone = useStudioStore((s) => s.tone);
   const ascii = useStudioStore((s) => s.ascii);
-  const effect = useStudioStore((s) => s.effect);
-  const effectParams = useStudioStore((s) => s.effectParams);
   const activeStack = useStudioStore((s) => s.activeStack);
   const activeTier = useStudioStore((s) => s.activeTier);
   const gpuEngine = useStudioStore((s) => s.gpuEngine);
@@ -301,20 +299,6 @@ export default function CenterStage() {
       pipelineRef.current.updateAscii(ascii);
     }
   }, [ascii]);
-
-  useEffect(() => {
-    if (pipelineRef.current) {
-      pipelineRef.current.setEffect(effect);
-    }
-  }, [effect]);
-
-  useEffect(() => {
-    if (pipelineRef.current) {
-      for (const [key, value] of Object.entries(effectParams)) {
-        pipelineRef.current.updateEffectParam(key, value);
-      }
-    }
-  }, [effectParams]);
 
   useEffect(() => {
     if (!audioState.enabled || audioState.status !== 'live') {

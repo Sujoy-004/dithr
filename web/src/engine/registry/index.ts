@@ -7,7 +7,7 @@ import type {
   EffectEnvironment,
 } from './types';
 
-// 15 Stylize effects
+// 16 Stylize effects
 import { asciiEffect } from './stylize/ascii';
 import { toneEffect } from './stylize/tone';
 import { ditherEffect } from './stylize/dither';
@@ -30,8 +30,6 @@ import { grainEffect } from './modulate/grain';
 import { rgbSplitEffect } from './modulate/rgbSplit';
 import { masksEffect } from './modulate/masks';
 import { crtVhsEffect } from './modulate/crtVhs';
-
-import { sRGBToLinear, linearTosRGB } from '../color/colorSpace';
 
 export const ALL_EFFECT_DEFINITIONS: readonly EffectDefinition[] = [
   asciiEffect,
@@ -58,7 +56,8 @@ export const ALL_EFFECT_DEFINITIONS: readonly EffectDefinition[] = [
 
 /**
  * Single-source-of-truth registry catalog for all visual effects (D-01, D-20, FX-01).
- * Registers all 16 Grainrad modes partitioned into stylize and modulate.
+ * Registers all 20 shader definitions partitioned into stylize (16) and modulate (4),
+ * and aliases 'vhs' to 'crtVhs' for seamless UI/stack interoperability.
  */
 export class EffectRegistry {
   private effects = new Map<string, EffectDefinition>();
@@ -74,6 +73,9 @@ export class EffectRegistry {
   }
 
   get(id: string): EffectDefinition | undefined {
+    if (id === 'vhs') {
+      return this.effects.get('crtVhs');
+    }
     return this.effects.get(id);
   }
 
@@ -134,10 +136,8 @@ export function applyBlendMode(
 }
 
 /**
- * Compiles an active effect stack in linear light:
- * 1. Decode sRGB input texture -> Linear light
- * 2. Execute active passes sequentially with linear blending
- * 3. Encode final Linear light -> display sRGB
+ * Compiles an active effect stack in linear working space:
+ * passes execute sequentially with linear blending and optional env.sampleAt for TextureNodes.
  */
 export function compileLinearEffectStack(
   sourceTextureNode: any,
@@ -145,18 +145,23 @@ export function compileLinearEffectStack(
   registry: EffectRegistry = effectRegistry,
   env?: EffectEnvironment
 ): any {
-  let current = sRGBToLinear(sourceTextureNode);
+  let current = sourceTextureNode;
+  const hasSampler = typeof sourceTextureNode?.sample === 'function';
+  const passEnv: EffectEnvironment | undefined =
+    hasSampler && !env?.sampleAt
+      ? { ...env, sampleAt: (uvCoord: any) => sourceTextureNode.sample(uvCoord) }
+      : env;
 
   for (const pass of activeStack) {
     if (!pass.enabled) continue;
     const def = registry.get(pass.effectId);
     if (!def) continue;
 
-    const effectOutput = def.buildNode(current, pass.parameters, env);
+    const effectOutput = def.buildNode(current, pass.parameters, passEnv);
     current = applyBlendMode(current, effectOutput, pass.blendMode, pass.intensity);
   }
 
-  return linearTosRGB(current);
+  return current;
 }
 
 export * from './types';

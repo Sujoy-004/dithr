@@ -25,7 +25,10 @@ export interface EffectEnvironment {
   time?: any;           // float TSL uniform (injected per D-27)
   seed?: any;           // float TSL uniform (injected per D-27)
   textureAtlas?: any;   // Texture or texture node for glyph sampling
+  atlasPadding?: any;   // vec2 TSL uniform (padX, padY) for padded glyph cells
   sampleAt?: (uvCoord: any) => any; // Arbitrary UV coordinate sampler
+  preToneActive?: boolean;
+  preToneUniforms?: Record<string, any>;
   [key: string]: any;
 }
 
@@ -35,7 +38,8 @@ export interface EffectDefinition {
   category: EffectCategory;
   parameters: Record<string, ParameterSchema>;
   requiresPass: boolean;
-  costWeight: number; // 1 for pointwise, 2 for spatial/convolution, 3 for temporal/heavy
+  spatial?: boolean;    // True when shader samples neighborhood/cell UVs via env.sampleAt
+  costWeight: number;   // 1 for pointwise, 2 for spatial/convolution, 3 for temporal/heavy
   buildNode: (inputNode: any, uniforms: Record<string, any>, env?: EffectEnvironment) => any;
 }
 

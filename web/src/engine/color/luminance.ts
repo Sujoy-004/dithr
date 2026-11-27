@@ -1,3 +1,6 @@
+import { Fn, vec2, vec3, fract, dot } from 'three/tsl';
+import { linearTosRGBChannel } from './colorSpace';
+
 /**
  * Rec. 601 and Rec. 709 Luminance standards and TSL shader nodes (D-05, D-20, FX-01, FX-02).
  * Rec. 601 coefficients strictly match src/renderer.py:49-51 for ASCII luminance parity.
@@ -49,6 +52,19 @@ export const rec601Luminance = (rgb: any) => {
 };
 
 /**
+ * Perceptual Rec. 601 luminance evaluated in sRGB perceptual space from a Linear RGB node.
+ * Ensures sRGB mid-gray 0.5 evaluates to ~0.500 instead of linear-light ~0.214.
+ */
+export const rec601PerceptualLuminance = (rgb: any) => {
+  const sr = linearTosRGBChannel(rgb.r);
+  const sg = linearTosRGBChannel(rgb.g);
+  const sb = linearTosRGBChannel(rgb.b);
+  return sr.mul(REC601_COEFFICIENTS.r)
+    .add(sg.mul(REC601_COEFFICIENTS.g))
+    .add(sb.mul(REC601_COEFFICIENTS.b));
+};
+
+/**
  * TSL perceived luminance node using Rec. 709 HDTV weights (0.2126*R + 0.7152*G + 0.0722*B).
  */
 export const rec709Luminance = (rgb: any) => {
@@ -63,3 +79,25 @@ export const rec709Luminance = (rgb: any) => {
 export const getLuminanceNode = (rgb: any, standard: LuminanceStandard = 'rec601') => {
   return standard === 'rec709' ? rec709Luminance(rgb) : rec601Luminance(rgb);
 };
+
+/**
+ * GPU-precision-safe Dave Hoskins Hash-without-Sine (vec2 -> float in [0, 1)).
+ * Avoids diagonal sin() precision striping on WebGPU/ANGLE backends.
+ */
+export const hash12Node = Fn(([p]: [any]) => {
+  const p3 = fract(vec3(p.x, p.y, p.x).mul(0.1031));
+  const d = dot(p3, vec3(p3.y, p3.z, p3.x).add(33.33));
+  const p3b = p3.add(d);
+  return fract(p3b.x.add(p3b.y).mul(p3b.z));
+});
+
+/**
+ * GPU-precision-safe Dave Hoskins Hash-without-Sine (vec2 -> vec2 in [0, 1)).
+ * Avoids diagonal sin() precision striping on WebGPU/ANGLE backends.
+ */
+export const hash22Node = Fn(([p]: [any]) => {
+  const p3 = fract(vec3(p.x, p.y, p.x).mul(vec3(0.1031, 0.1030, 0.0973)));
+  const d = dot(p3, vec3(p3.y, p3.z, p3.x).add(33.33));
+  const p3b = p3.add(d);
+  return fract(vec2(p3b.x.add(p3b.y), p3b.x.add(p3b.z)).mul(vec2(p3b.z, p3b.y)));
+});

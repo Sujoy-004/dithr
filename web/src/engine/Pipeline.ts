@@ -14,22 +14,34 @@ import {
   type CompiledPipeline,
 } from './graph/GraphCompiler';
 import { evaluateTierBudget, type QualityTier } from './capabilities';
+import { getEffectDefinition } from './registry/index';
 import type {
   ActiveEffectPass,
   EffectEnvironment,
 } from './registry/types';
-import type { ToneSettings, AsciiSettings, EffectMode } from '../types/studio';
+import type { ToneSettings, AsciiSettings } from '../types/studio';
 
 export interface PipelineOptions {
   canvas: HTMLCanvasElement;
 }
 
-export type ColorGradingPreset = 'original' | 'green' | 'amber' | 'cyan';
+const PRE_TONE_ID = '__preTone__';
+
+function isToneNeutral(settings: ToneSettings): boolean {
+  return (
+    settings.brightness === 1 &&
+    settings.contrast === 1 &&
+    settings.saturation === 1 &&
+    settings.hueRotation === 0 &&
+    settings.gamma === 1 &&
+    !settings.invert
+  );
+}
 
 /**
  * Shader Engine 2.0 Dynamic Composable Pipeline (D-01, D-06, D-21, D-22, D-23, D-24, FX-01).
- * Features hybrid pointwise pass fusion, pooled intermediate RenderTargets,
- * quality tier budget enforcement, and zero-recompile uniform updates.
+ * Features hybrid pointwise pass fusion, pooled HalfFloatType intermediate RenderTargets,
+ * quality tier budget enforcement, Stage-0 pre-tone, and zero-recompile uniform updates.
  */
 export class StudioPipeline {
   private studioRenderer: StudioRenderer;
@@ -56,33 +68,19 @@ export class StudioPipeline {
   private resolutionUniform: any;
   private timeUniform: any;
   private seedUniform: any;
+  private atlasPaddingUniform: any;
+
+  // Stage-0 Pre-Tone state
+  private preToneActive = false;
+  private preToneUniforms: Record<string, any>;
 
   // Active stack & pipeline cache (D-22)
   private currentStack: ActiveEffectPass[] = [];
   private currentTier: QualityTier = 'high';
   private pipelineCache = new Map<string, CompiledPipeline>();
   private currentPipeline: CompiledPipeline | null = null;
+  private currentCacheKey: string | null = null;
   private uniformsMap = new Map<string, any>();
-
-  // Legacy single-effect state for backwards compatibility
-  private activeEffect: EffectMode = 'ascii';
-  private colorGrading: ColorGradingPreset = 'original';
-  private legacyTone: ToneSettings = {
-    brightness: 1.0,
-    contrast: 1.0,
-    saturation: 1.0,
-    hueRotation: 0.0,
-    gamma: 1.0,
-    invert: false,
-  };
-  private legacyAscii: AsciiSettings = {
-    cellScale: 8.0,
-    charSpacing: 0.0,
-    charAspect: 0.5,
-    rampPreset: 'standard',
-    customChars: '',
-  };
-  private legacyParams: Record<string, number> = {};
 
   private isDisposed = false;
   private unbindContextListeners: (() => void) | null = null;
@@ -100,6 +98,20 @@ export class StudioPipeline {
     this.resolutionUniform = uniform(vec2(1, 1));
     this.timeUniform = uniform(0.0);
     this.seedUniform = uniform(1.0);
+    this.atlasPaddingUniform = uniform(vec2(0.06, 0.06));
+
+    // Stage-0 pre-tone uniforms
+    this.preToneUniforms = {
+      brightness: uniform(1.0),
+      contrast: uniform(1.0),
+      saturation: uniform(1.0),
+      hueRotation: uniform(0.0),
+      gamma: uniform(1.0),
+      invert: uniform(0.0),
+    };
+    for (const [k, u] of Object.entries(this.preToneUniforms)) {
+      this.uniformsMap.set(`${PRE_TONE_ID}:${k}`, u);
+    }
 
     this.fallbackMaterial = new THREE.MeshBasicNodeMaterial();
     // Linear-space match for #0c0d10 ink so standby canvas blends seamlessly with stage
@@ -121,7 +133,9 @@ export class StudioPipeline {
     await this.studioRenderer.init();
     this.renderer = this.studioRenderer.getRenderer();
     this.textureAtlas.updateRamp('standard');
-    this.syncLegacyStack();
+    const pad = this.textureAtlas.getSlotPaddingRatio();
+    this.atlasPaddingUniform.value.set(pad.padX, pad.padY);
+    this.syncStack(this.currentStack, this.currentTier);
   }
 
   /**
@@ -137,21 +151,28 @@ export class StudioPipeline {
 
     // 2. Compute topology hash on allowed enabled passes (D-22)
     const newHash = computeTopologyHash(allowedStack);
+    const cacheKey = this.preToneActive ? `${newHash}::preTone` : newHash;
+
+    // Keep glyph ramp lengths synced with the active atlas
+    const charCount = this.textureAtlas.getCharCount();
 
     // If topology matches current pipeline, retain current compiled material and update uniforms
-    if (this.currentPipeline && this.currentPipeline.topologyHash === newHash) {
+    if (this.currentPipeline && this.currentCacheKey === cacheKey) {
       for (const pass of allowedStack) {
         if (!pass.enabled) continue;
         for (const [k, v] of Object.entries(pass.parameters)) {
           this.updateUniform(pass.instanceId, k, v);
         }
         this.updateUniform(pass.instanceId, 'intensity', pass.intensity);
+        if (pass.effectId === 'ascii' || pass.effectId === 'matrix' || pass.effectId === 'threeD') {
+          this.updateUniform(pass.instanceId, 'rampLength', charCount);
+        }
       }
       return;
     }
 
     // 3. Topology changed: retrieve cached pipeline or compile new one
-    let pipeline = this.pipelineCache.get(newHash);
+    let pipeline = this.pipelineCache.get(cacheKey);
     if (!pipeline) {
       const stages = this.graphCompiler.planExecutionStages(allowedStack);
       const env: EffectEnvironment = {
@@ -159,6 +180,9 @@ export class StudioPipeline {
         time: this.timeUniform,
         seed: this.seedUniform,
         textureAtlas: this.textureAtlas.getTexture(),
+        atlasPadding: this.atlasPaddingUniform,
+        preToneActive: this.preToneActive,
+        preToneUniforms: this.preToneUniforms,
       };
 
       pipeline = this.graphCompiler.compileGraph(
@@ -167,27 +191,49 @@ export class StudioPipeline {
         this.uniformsMap,
         env
       );
-      this.pipelineCache.set(newHash, pipeline);
+      this.pipelineCache.set(cacheKey, pipeline);
     }
 
     this.currentPipeline = pipeline;
+    this.currentCacheKey = cacheKey;
     this.displayMesh.material = pipeline.finalMaterial;
+
+    for (const pass of allowedStack) {
+      if (!pass.enabled) continue;
+      if (pass.effectId === 'ascii' || pass.effectId === 'matrix' || pass.effectId === 'threeD') {
+        this.updateUniform(pass.instanceId, 'rampLength', charCount);
+      }
+    }
   }
 
   /**
    * Mutates an existing TSL UniformNode value in-place without triggering graph compilation (D-22).
+   * Resolves 'select' string values to option indices and booleans to 0.0 / 1.0.
    */
   updateUniform(instanceId: string, paramKey: string, value: any): void {
+    const pass = this.currentStack.find((p) => p.instanceId === instanceId);
+    let resolvedValue = value;
+
+    if (pass) {
+      const def = getEffectDefinition(pass.effectId);
+      const schema = def?.parameters?.[paramKey];
+      if (schema?.type === 'select' && Array.isArray(schema.options)) {
+        resolvedValue = Math.max(0, schema.options.indexOf(String(value)));
+      } else if (typeof value === 'boolean') {
+        resolvedValue = value ? 1.0 : 0.0;
+      }
+
+      if (pass.parameters) {
+        pass.parameters[paramKey] = value;
+      }
+    } else if (typeof value === 'boolean') {
+      resolvedValue = value ? 1.0 : 0.0;
+    }
+
     const key = `${instanceId}:${paramKey}`;
     const u = this.uniformsMap.get(key);
     if (u && typeof u === 'object' && 'value' in u) {
-      u.value = value;
-    }
-
-    // Keep parameters state synchronized
-    const pass = this.currentStack.find((p) => p.instanceId === instanceId);
-    if (pass && pass.parameters) {
-      pass.parameters[paramKey] = value;
+      u.value = resolvedValue;
     }
   }
 
@@ -231,100 +277,40 @@ export class StudioPipeline {
     this.syncStack(this.currentStack);
   }
 
-  // Backwards compatibility: updates pre-tone settings
+  /**
+   * Updates implicit Stage-0 pre-tone uniforms without mutating activeStack.
+   * Bypassed automatically when all tone settings are neutral.
+   */
   updateTone(settings: ToneSettings): void {
-    this.legacyTone = { ...settings };
-    this.updateUniform('legacy-tone', 'brightness', settings.brightness);
-    this.updateUniform('legacy-tone', 'contrast', settings.contrast);
-    this.updateUniform('legacy-tone', 'saturation', settings.saturation);
-    this.updateUniform('legacy-tone', 'hueRotation', settings.hueRotation);
-    this.updateUniform('legacy-tone', 'gamma', settings.gamma);
-    this.updateUniform('legacy-tone', 'invert', settings.invert ? 1.0 : 0.0);
-  }
+    this.preToneUniforms.brightness.value = settings.brightness;
+    this.preToneUniforms.contrast.value = settings.contrast;
+    this.preToneUniforms.saturation.value = settings.saturation;
+    this.preToneUniforms.hueRotation.value = settings.hueRotation;
+    this.preToneUniforms.gamma.value = settings.gamma;
+    this.preToneUniforms.invert.value = settings.invert ? 1.0 : 0.0;
 
-  // Backwards compatibility: updates ASCII settings
-  updateAscii(settings: AsciiSettings): void {
-    this.legacyAscii = { ...settings };
-    this.textureAtlas.updateRamp(settings.rampPreset, settings.customChars);
-
-    this.updateUniform('legacy-ascii', 'cellScale', settings.cellScale);
-    this.updateUniform('legacy-ascii', 'charSpacing', settings.charSpacing);
-    this.updateUniform('legacy-ascii', 'charAspect', settings.charAspect);
-    this.updateUniform('legacy-ascii', 'rampLength', this.textureAtlas.getCharCount());
-  }
-
-  // Backwards compatibility: updates generic parameter
-  updateEffectParam(key: string, value: number): void {
-    this.legacyParams[key] = value;
-    this.updateUniform(`legacy-${this.activeEffect}`, key, value);
-  }
-
-  // Backwards compatibility: switches active single effect
-  setEffect(effect: EffectMode): void {
-    if (this.activeEffect !== effect) {
-      this.activeEffect = effect;
-      this.syncLegacyStack();
-    }
-  }
-
-  // Backwards compatibility: sets color grading
-  setColorGrading(preset: ColorGradingPreset): void {
-    if (this.colorGrading !== preset) {
-      this.colorGrading = preset;
-      this.syncLegacyStack();
+    const nextActive = !isToneNeutral(settings);
+    if (nextActive !== this.preToneActive) {
+      this.preToneActive = nextActive;
+      this.syncStack(this.currentStack, this.currentTier);
     }
   }
 
   /**
-   * Synthesizes and synchronizes a legacy single-effect stack for backwards compatibility.
+   * Updates the ASCII/Matrix/3D character texture atlas and propagates rampLength
+   * across all active glyph-based passes in the stack.
    */
-  private syncLegacyStack(): void {
-    const stack: ActiveEffectPass[] = [];
+  updateAscii(settings: AsciiSettings): void {
+    this.textureAtlas.updateRamp(settings.rampPreset, settings.customChars);
+    const pad = this.textureAtlas.getSlotPaddingRatio();
+    this.atlasPaddingUniform.value.set(pad.padX, pad.padY);
 
-    // 1. Tone pass
-    stack.push({
-      instanceId: 'legacy-tone',
-      effectId: 'tone',
-      enabled: true,
-      intensity: 1.0,
-      blendMode: 'normal',
-      parameters: {
-        brightness: this.legacyTone.brightness,
-        contrast: this.legacyTone.contrast,
-        saturation: this.legacyTone.saturation,
-        hueRotation: this.legacyTone.hueRotation,
-        gamma: this.legacyTone.gamma,
-        invert: this.legacyTone.invert ? 1.0 : 0.0,
-      },
-    });
-
-    // 2. Primary effect pass
-    if (this.activeEffect === 'ascii') {
-      stack.push({
-        instanceId: 'legacy-ascii',
-        effectId: 'ascii',
-        enabled: true,
-        intensity: 1.0,
-        blendMode: 'normal',
-        parameters: {
-          cellScale: this.legacyAscii.cellScale,
-          charSpacing: this.legacyAscii.charSpacing,
-          charAspect: this.legacyAscii.charAspect,
-          rampLength: this.textureAtlas.getCharCount(),
-        },
-      });
-    } else if (this.activeEffect !== 'tone' && this.activeEffect !== 'vhs') {
-      stack.push({
-        instanceId: `legacy-${this.activeEffect}`,
-        effectId: this.activeEffect,
-        enabled: true,
-        intensity: 1.0,
-        blendMode: 'normal',
-        parameters: { ...this.legacyParams },
-      });
+    const charCount = this.textureAtlas.getCharCount();
+    for (const pass of this.currentStack) {
+      if (pass.effectId === 'ascii' || pass.effectId === 'matrix' || pass.effectId === 'threeD') {
+        this.updateUniform(pass.instanceId, 'rampLength', charCount);
+      }
     }
-
-    this.syncStack(stack);
   }
 
   resize(width: number, height: number): void {
@@ -337,8 +323,8 @@ export class StudioPipeline {
   }
 
   /**
-   * Renders the execution graph. Intermediate stages execute into pooled render targets,
-   * and the final stage renders onto the canvas display mesh (D-21, D-24).
+   * Renders the execution graph. Intermediate stages execute into pooled HalfFloatType render targets
+   * (with UnsignedByteType fallback), and the final stage renders onto the canvas display mesh (D-21, D-24).
    */
   render(timeSeconds: number = 0): void {
     if (this.isDisposed || !this.renderer) return;
@@ -368,15 +354,25 @@ export class StudioPipeline {
 
     for (let i = 0; i < stageCount - 1; i++) {
       const stageDesc = stages[i];
-      const target = this.passPool.acquire(
-        this.width,
-        this.height,
-        stageDesc.targetDescriptor
-      );
-
-      this.displayMesh.material = stageDesc.material;
-      this.renderer.setRenderTarget(target);
-      this.renderer.render(this.scene, this.camera);
+      let target: THREE.RenderTarget;
+      try {
+        target = this.passPool.acquire(
+          this.width,
+          this.height,
+          stageDesc.targetDescriptor
+        );
+        this.displayMesh.material = stageDesc.material;
+        this.renderer.setRenderTarget(target);
+        this.renderer.render(this.scene, this.camera);
+      } catch {
+        target = this.passPool.acquire(this.width, this.height, {
+          format: THREE.RGBAFormat,
+          type: THREE.UnsignedByteType,
+        });
+        this.displayMesh.material = stageDesc.material;
+        this.renderer.setRenderTarget(target);
+        this.renderer.render(this.scene, this.camera);
+      }
 
       // Pass target texture to next stage's input node
       const nextStage = stages[i + 1];
@@ -408,6 +404,7 @@ export class StudioPipeline {
     }
     this.pipelineCache.clear();
     this.currentPipeline = null;
+    this.currentCacheKey = null;
   }
 
   getRenderer(): StudioRenderer {
