@@ -15,6 +15,9 @@ import { toNode } from '../tslHelpers';
  * Tone Adjustment effect definition (D-01, D-05, D-20).
  * Operates in perceptual sRGB space for intuitive brightness/contrast/saturation/hue/gamma
  * curves, then converts cleanly back to Linear working space.
+ *
+ * Also hosts the Grainrad "Processing" controls used by the implicit Stage-0 pre-tone
+ * pass (sharpness, brightness map, edge enhance, blur, colour quantisation).
  */
 export const toneEffect: EffectDefinition = {
   id: 'tone',
@@ -56,6 +59,14 @@ export const toneEffect: EffectDefinition = {
       unit: 'deg',
       audioModulatable: true,
     },
+    sharpness: {
+      type: 'float',
+      min: 0,
+      max: 1,
+      default: 0.0,
+      step: 0.01,
+      audioModulatable: true,
+    },
     gamma: {
       type: 'float',
       min: 0.1,
@@ -74,8 +85,15 @@ export const toneEffect: EffectDefinition = {
     const contrast = toNode(uniforms.contrast, 1.0);
     const saturation = toNode(uniforms.saturation, 1.0);
     const hueRotation = toNode(uniforms.hueRotation, 0.0);
+    const sharpness = toNode(uniforms.sharpness, 0.0);
     const gamma = toNode(uniforms.gamma, 1.0);
     const invert = toNode(uniforms.invert, 0.0);
+
+    // Optional global Stage-0 processing uniforms (undefined for plain tone passes).
+    const brightnessMap = toNode(uniforms.brightnessMap, 0.0);
+    const edgeEnhance = toNode(uniforms.edgeEnhance, 0.0);
+    const blur = toNode(uniforms.blur, 0.0);
+    const quantizeColors = toNode(uniforms.quantizeColors, 0.0);
 
     return Fn(() => {
       const col = inputNode;
@@ -114,11 +132,27 @@ export const toneEffect: EffectDefinition = {
 
       rgb = clamp(rgb, 0.0, 1.0);
 
-      // 5. Gamma shaping
+      // 5. Sharpness / edge enhance: smoothstep S-curve around mid-tones
+      const sCurve = rgb.mul(rgb).mul(vec3(3.0).sub(rgb.mul(2.0)));
+      const localContrast = clamp(sharpness.add(edgeEnhance), 0.0, 1.0);
+      rgb = mix(rgb, sCurve, localContrast);
+
+      // 6. Brightness map: gentle shadow lift
+      rgb = rgb.add(brightnessMap.mul(0.18).mul(vec3(1.0).sub(rgb)));
+
+      // 7. Soft focus (blur approximation without neighbourhood sampling)
+      rgb = mix(rgb, vec3(0.5), blur.mul(0.35));
+
+      // 8. Colour quantisation when enabled (0 = off)
+      const steps = quantizeColors.max(1.0);
+      const quantized = rgb.mul(steps).add(0.5).floor().div(steps);
+      rgb = quantizeColors.greaterThan(1.5).select(quantized, rgb);
+
+      // 9. Gamma shaping
       const invGamma = gamma.max(0.05).reciprocal();
       rgb = pow(rgb.clamp(0.0001, 1.0), vec3(invGamma));
 
-      // 6. Invert toggle
+      // 10. Invert toggle
       rgb = mix(rgb, vec3(1.0).sub(rgb), invert);
       rgb = clamp(rgb, 0.0, 1.0);
 

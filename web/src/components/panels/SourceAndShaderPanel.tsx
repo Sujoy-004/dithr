@@ -17,6 +17,7 @@ import {
 import { useStudioStore } from '../../store/useStudioStore';
 import type { EffectMode, MediaType } from '../../types/studio';
 import { getGroupedEffects, getEffectDefinition } from '../../engine/registry';
+import { CHAR_PRESET_LIST } from '../../store/presets';
 
 export const EFFECT_LIST: { mode: EffectMode; label: string }[] = [
   { mode: 'ascii', label: 'ascii' },
@@ -37,12 +38,7 @@ export const EFFECT_LIST: { mode: EffectMode; label: string }[] = [
   { mode: 'tone', label: 'tone' },
 ];
 
-const PRESETS: { preset: 'standard' | 'dense' | 'simple' | 'blocks'; label: string }[] = [
-  { preset: 'standard', label: 'standard' },
-  { preset: 'dense', label: 'dense' },
-  { preset: 'simple', label: 'simple' },
-  { preset: 'blocks', label: 'blocks' },
-];
+const PRESETS = CHAR_PRESET_LIST.map(({ id, label }) => ({ preset: id, label: label.toLowerCase() }));
 
 const SOURCES: { type: MediaType; label: string; Icon: typeof ImageIcon }[] = [
   { type: 'image', label: 'image', Icon: ImageIcon },
@@ -82,6 +78,8 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
   const clearMedia = useStudioStore((s) => s.clearMedia);
 
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [inputOpen, setInputOpen] = useState(true);
+  const [effectsOpen, setEffectsOpen] = useState(true);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const [grabbedIndex, setGrabbedIndex] = useState<number | null>(null);
@@ -221,7 +219,13 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
 
       {showMedia && (
         <>
-          <SectionHeader title="Source" state={mediaType ?? 'standby'} />
+          <SectionHeader
+            title="Input"
+            state={mediaType ?? 'standby'}
+            open={inputOpen}
+            onToggle={() => setInputOpen((prev) => !prev)}
+          />
+          {inputOpen && (
           <div className="px-4 pb-3">
             <div className="grid grid-cols-3 gap-1.5">
               {SOURCES.map(({ type, label, Icon }) => (
@@ -291,12 +295,20 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
               </div>
             )}
           </div>
+          )}
         </>
       )}
 
       {showShaders && (
         <>
-          <SectionHeader title="Active stack" state={`${activeStack.length}`} />
+          <SectionHeader
+            title="Effects"
+            state={`${activeStack.length}`}
+            open={effectsOpen}
+            onToggle={() => setEffectsOpen((prev) => !prev)}
+          />
+          {effectsOpen && (
+          <>
           <div className="px-4 pb-3">
             {activeStack.length === 0 ? (
               <div className="border border-dashed border-hairline p-3 text-center text-control text-dim">
@@ -572,17 +584,55 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
               </div>
             </>
           )}
+          </>
+          )}
         </>
       )}
     </div>
   );
 }
 
-function SectionHeader({ title, state }: { title: string; state: string }) {
+function SectionHeader({
+  title,
+  state,
+  open,
+  onToggle,
+}: {
+  title: string;
+  state: string;
+  open?: boolean;
+  onToggle?: () => void;
+}) {
+  const content = (
+    <>
+      <span className="flex items-center gap-1.5">
+        {open !== undefined && (
+          <span aria-hidden className="text-dim">
+            {open ? '−' : '+'}
+          </span>
+        )}
+        <span>{title}</span>
+      </span>
+      <span className="tabular-nums font-normal">{state}</span>
+    </>
+  );
+
+  if (onToggle) {
+    return (
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex w-full items-center justify-between border-t border-hairline px-4 py-2 text-[11px] font-semibold text-dim first:border-t-0 hover:bg-raised hover:text-highlight"
+      >
+        {content}
+      </button>
+    );
+  }
+
   return (
     <div className="flex items-center justify-between border-t border-hairline px-4 py-2 text-[11px] font-semibold text-dim first:border-t-0">
-      <span>{title}</span>
-      <span className="tabular-nums font-normal">{state}</span>
+      {content}
     </div>
   );
 }

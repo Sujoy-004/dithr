@@ -11,7 +11,7 @@ import MobileSheet from './components/layout/MobileSheet';
  * and mobile full-height canvas with frosted-glass bottom sheet.
  */
 export default function App() {
-  const theme = useStudioStore((s) => s.theme);
+  const studioTheme = useStudioStore((s) => s.studioTheme);
   const zoom = useStudioStore((s) => s.zoom);
   const dimensions = useStudioStore((s) => s.dimensions);
   const activeTier = useStudioStore((s) => s.activeTier);
@@ -24,8 +24,8 @@ export default function App() {
   );
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    document.documentElement.dataset.theme = studioTheme;
+  }, [studioTheme]);
 
   useEffect(() => {
     const handleResize = () => {

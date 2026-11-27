@@ -9,7 +9,9 @@ import {
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
 import { rec601PerceptualLuminance } from '../../color/luminance';
-import { toNode } from '../tslHelpers';
+import { toNode, resolveSelectNode } from '../tslHelpers';
+import { PALETTE_OPTIONS } from '../../../store/palettes';
+import { buildPaletteNode } from '../paletteNode';
 
 /**
  * High-Contrast Threshold binary effect definition (D-01, D-05, D-20).
@@ -42,11 +44,17 @@ export const thresholdEffect: EffectDefinition = {
       type: 'boolean',
       default: false,
     },
+    palette: {
+      type: 'select',
+      default: 'none',
+      options: [...PALETTE_OPTIONS],
+    },
   },
   buildNode: (inputNode, uniforms) => {
     const cutoff = toNode(uniforms.cutoff, 0.45);
     const softness = toNode(uniforms.softness, 0.02);
     const invert = toNode(uniforms.invert, 0.0);
+    const paletteIdx = resolveSelectNode(uniforms.palette, PALETTE_OPTIONS, 0);
 
     return Fn(() => {
       const baseCol = inputNode;
@@ -59,7 +67,8 @@ export const thresholdEffect: EffectDefinition = {
 
       const inkBg = vec3(0.003, 0.0035, 0.005); // #07080b linear
       const chalkFg = vec3(0.88, 0.90, 0.93); // #f0f2f6 linear
-      const finalRGB = mix(inkBg, chalkFg, val);
+      const monochrome = mix(inkBg, chalkFg, val);
+      const finalRGB = buildPaletteNode(monochrome, val, paletteIdx);
 
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();

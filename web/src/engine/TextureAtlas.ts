@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { CHAR_PRESETS } from '../store/presets';
+import { resolveChars } from '../store/presets';
 import type { RampPreset } from '../types/studio';
 
 export interface TextureAtlasOptions {
@@ -46,7 +46,7 @@ export class TextureAtlas {
    * Updates the atlas texture for the given preset or custom character string.
    */
   updateRamp(preset: RampPreset, customChars?: string): void {
-    const chars = customChars && customChars.length > 0 ? customChars : CHAR_PRESETS[preset];
+    const chars = resolveChars(preset, customChars);
     if (chars === this.currentChars && this.canvas.width > 0) {
       return;
     }
@@ -63,7 +63,8 @@ export class TextureAtlas {
     this.slotWidth = this.charWidth + this.padding * 2;
     this.slotHeight = this.charHeight + this.padding * 2;
 
-    const count = chars.length;
+    const glyphs = Array.from(chars);
+    const count = glyphs.length;
     this.canvas.width = Math.max(1, count * this.slotWidth);
     this.canvas.height = Math.max(1, this.slotHeight);
 
@@ -78,7 +79,7 @@ export class TextureAtlas {
 
     const centerY = this.slotHeight / 2;
     for (let i = 0; i < count; i++) {
-      const char = chars[i];
+      const char = glyphs[i];
       const centerX = i * this.slotWidth + this.slotWidth / 2;
       this.ctx.fillText(char, centerX, centerY);
     }
@@ -91,7 +92,7 @@ export class TextureAtlas {
   }
 
   getCharCount(): number {
-    return Math.max(1, this.currentChars.length);
+    return Math.max(1, Array.from(this.currentChars).length);
   }
 
   getCharWidth(): number {

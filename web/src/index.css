@@ -27,45 +27,161 @@
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-latin-600.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-latin-600.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ---------------------------------------------------------------------------
+   Grainrad terminal theme tokens. `default` is the base; the other themes
+   override the same variables, and the semantic dithr tokens map onto them so
+   every existing component inherits each theme without per-component rewrites.
+   --------------------------------------------------------------------------- */
+:root,
+html[data-theme='default'] {
+  --term-bg: #0a0a0a;
+  --term-panel: #0f0f0f;
+  --term-active: #1a1a1a;
+  --term-border: #222222;
+  --term-border-strong: #3a3a3a;
+  --term-accent: #ffffff;
+  --term-accent-dim: #888888;
+  --term-text: #888888;
+  --term-text-dim: #555555;
+  --term-text-bright: #cccccc;
+  --term-green: #00ff41;
+  --term-yellow: #ffb000;
+  --term-accent-rgb: 255, 255, 255;
+  --term-text-bright-rgb: 204, 204, 204;
+  --term-glow: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='vt320'] {
+  --term-bg: #0a0a08;
+  --term-panel: #0f0e0a;
+  --term-active: #1f1a08;
+  --term-border: #332800;
+  --term-border-strong: #665200;
+  --term-accent: #ffb000;
+  --term-accent-dim: #664400;
+  --term-text: #ffb000;
+  --term-text-dim: #664400;
+  --term-text-bright: #ffcc40;
+  --term-green: #ffb000;
+  --term-yellow: #ffcc40;
+  --term-accent-rgb: 255, 176, 0;
+  --term-text-bright-rgb: 255, 204, 64;
+  --term-glow: rgba(255, 176, 0, 0.35);
+}
+
+html[data-theme='cassette'] {
+  --term-bg: #000000;
+  --term-panel: #001100;
+  --term-active: #002200;
+  --term-border: #003300;
+  --term-border-strong: #006622;
+  --term-accent: #00ff41;
+  --term-accent-dim: #006622;
+  --term-text: #00ff41;
+  --term-text-dim: #006622;
+  --term-text-bright: #66ff66;
+  --term-green: #00ff41;
+  --term-yellow: #66ff66;
+  --term-accent-rgb: 0, 255, 65;
+  --term-text-bright-rgb: 102, 255, 102;
+  --term-glow: rgba(0, 255, 65, 0.4);
+}
+
+html[data-theme='coldwar'] {
+  --term-bg: #0a0a14;
+  --term-panel: #12121e;
+  --term-active: #1c1c2e;
+  --term-border: #2a2a3a;
+  --term-border-strong: #3a3a5a;
+  --term-accent: #00ff41;
+  --term-accent-dim: #004d1a;
+  --term-text: #00ff41;
+  --term-text-dim: #004d1a;
+  --term-text-bright: #66ff99;
+  --term-green: #00ff41;
+  --term-yellow: #ffd400;
+  --term-accent-rgb: 0, 255, 65;
+  --term-text-bright-rgb: 102, 255, 153;
+  --term-glow: rgba(0, 255, 65, 0.28);
+}
+
+html[data-theme='light'] {
+  --term-bg: #f5f6f8;
+  --term-panel: #eceef2;
+  --term-active: #dfe3ea;
+  --term-border: #c7ccd6;
+  --term-border-strong: #8d94a3;
+  --term-accent: #0c0d10;
+  --term-accent-dim: #4d5360;
+  --term-text: #2d313a;
+  --term-text-dim: #4d5360;
+  --term-text-bright: #14161c;
+  --term-green: #007a2f;
+  --term-yellow: #9a6200;
+  --term-accent-rgb: 12, 13, 16;
+  --term-text-bright-rgb: 20, 22, 28;
+  --term-glow: rgba(12, 13, 16, 0.08);
+}
+
 :root {
-  --bg-base: #0c0d10;
-  --bg-raised: #13151a;
-  --bg-active: #1d2028;
-  --border-hairline: #262932;
-  --border-strong: #3c414f;
-  --text-dim: #8a8f9c;
-  --text-default: #b8becb;
-  --text-highlight: #e9ebf0;
-  --text-max: #ffffff;
-  --overlay-drag: rgba(12, 13, 16, 0.72);
-  --overlay-scrim: rgba(12, 13, 16, 0.76);
-  --glass-bg: rgba(18, 20, 26, 0.78);
-  --glass-border: rgba(255, 255, 255, 0.14);
-  --glass-highlight: rgba(255, 255, 255, 0.18);
+  --bg-base: var(--term-bg);
+  --bg-raised: var(--term-panel);
+  --bg-active: var(--term-active);
+  --border-hairline: var(--term-border);
+  --border-strong: var(--term-border-strong);
+  --text-dim: var(--term-text-dim);
+  --text-default: var(--term-text);
+  --text-highlight: var(--term-text-bright);
+  --text-max: var(--term-accent);
+  --overlay-drag: color-mix(in srgb, var(--term-bg) 72%, transparent);
+  --overlay-scrim: color-mix(in srgb, var(--term-bg) 76%, transparent);
+  --glass-bg: color-mix(in srgb, var(--term-panel) 84%, transparent);
+  --glass-border: color-mix(in srgb, var(--term-text-bright) 18%, transparent);
+  --glass-highlight: color-mix(in srgb, var(--term-accent) 18%, transparent);
 
   --font-sans: 'Archivo', 'Archivo Fallback', system-ui, -apple-system, sans-serif;
-  --font-mono: ui-monospace, monospace;
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas,
+    'Courier New', monospace;
 
   --dur-fast: 100ms;
   --dur-med: 160ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
-}
-
-[data-theme='light'] {
-  --bg-base: #f5f6f8;
-  --bg-raised: #eceef2;
-  --bg-active: #dfe3ea;
-  --border-hairline: #c7ccd6;
-  --border-strong: #8d94a3;
-  --text-dim: #4d5360;
-  --text-default: #2d313a;
-  --text-highlight: #14161c;
-  --text-max: #0c0d10;
-  --overlay-drag: rgba(245, 246, 248, 0.72);
-  --overlay-scrim: rgba(245, 246, 248, 0.78);
-  --glass-bg: rgba(245, 246, 248, 0.84);
-  --glass-border: rgba(12, 13, 16, 0.14);
-  --glass-highlight: rgba(255, 255, 255, 0.65);
 }
 
 @theme inline {
@@ -74,10 +190,14 @@
   --color-raised: var(--bg-raised);
   --color-hairline: var(--border-hairline);
   --color-border: var(--border-hairline);
+  --color-border-strong: var(--border-strong);
   --color-dim: var(--text-dim);
   --color-default: var(--text-default);
   --color-highlight: var(--text-highlight);
   --color-max: var(--text-max);
+  --color-accent: var(--term-accent);
+  --color-term-green: var(--term-green);
+  --color-term-yellow: var(--term-yellow);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
   --default-font-family: var(--font-sans);
@@ -96,6 +216,12 @@ body {
   color: var(--text-default);
   font-family: var(--font-sans);
   caret-color: var(--text-highlight);
+}
+
+body.studio-shell {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum' 1, 'zero' 1;
+  letter-spacing: 0.01em;
 }
 
 body.studio-shell,
@@ -140,34 +266,92 @@ body.studio-shell #root {
   background: var(--border-strong);
 }
 
-/* Unified range slider styling across all studio panels */
+/* Unified range slider styling across all studio panels (Grainrad hairline) */
 input[type='range'][data-slider] {
   -webkit-appearance: none;
   appearance: none;
   height: 20px;
-  background: linear-gradient(var(--border-hairline), var(--border-hairline)) center / 100% 2px no-repeat;
+  background:
+    linear-gradient(
+        to right,
+        var(--text-highlight) 0%,
+        var(--text-highlight) var(--slider-fill, 0%),
+        var(--border-hairline) var(--slider-fill, 0%),
+        var(--border-hairline) 100%
+      )
+      center / 100% 1px no-repeat;
 }
 input[type='range'][data-slider]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   background: var(--text-highlight);
-  border: 1px solid var(--bg-base);
-  border-radius: 2px;
+  border: none;
+  border-radius: 9999px;
   cursor: ew-resize;
+  box-shadow: 0 0 0 1px var(--bg-base);
 }
 input[type='range'][data-slider]::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   background: var(--text-highlight);
-  border: 1px solid var(--bg-base);
-  border-radius: 2px;
+  border: none;
+  border-radius: 9999px;
   cursor: ew-resize;
+  box-shadow: 0 0 0 1px var(--bg-base);
 }
 input[type='range'][data-slider]::-moz-range-track {
-  height: 2px;
+  height: 1px;
   background: var(--border-hairline);
+}
+
+/* CRT scanline overlay for the phosphor themes (does not block input) */
+html[data-theme='vt320'] body::after,
+html[data-theme='cassette'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.22) 0px,
+    rgba(0, 0, 0, 0.22) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  opacity: 0.35;
+}
+
+html[data-theme='vt320'] body.studio-shell,
+html[data-theme='cassette'] body.studio-shell {
+  text-shadow: 0 0 6px var(--term-glow);
+}
+
+html[data-theme='cassette'] body.studio-shell button,
+html[data-theme='cassette'] body.studio-shell label,
+html[data-theme='cassette'] body.studio-shell .uppercase {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+html[data-theme='coldwar'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(0, 255, 65, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 255, 65, 0.05) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+html[data-theme='coldwar'] body.studio-shell button,
+html[data-theme='coldwar'] body.studio-shell label {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 @media (prefers-reduced-motion: reduce) {

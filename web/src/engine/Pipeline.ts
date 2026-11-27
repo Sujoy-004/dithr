@@ -19,7 +19,13 @@ import type {
   ActiveEffectPass,
   EffectEnvironment,
 } from './registry/types';
-import type { ToneSettings, AsciiSettings } from '../types/studio';
+import type { ToneSettings, AsciiSettings, ProcessingSettings, PostProcessingSettings } from '../types/studio';
+import {
+  isPostProcessingActive,
+  postProcessTopology,
+  type PostProcessUniforms,
+} from './registry/modulate/postProcess';
+import { hexToRgb } from '../store/palettes';
 
 export interface PipelineOptions {
   canvas: HTMLCanvasElement;
@@ -27,15 +33,61 @@ export interface PipelineOptions {
 
 const PRE_TONE_ID = '__preTone__';
 
-function isToneNeutral(settings: ToneSettings): boolean {
+const NEUTRAL_TONE: ToneSettings = {
+  brightness: 1,
+  contrast: 1,
+  saturation: 1,
+  hueRotation: 0,
+  gamma: 1,
+  invert: false,
+  sharpness: 0,
+};
+
+const NEUTRAL_PROCESSING: ProcessingSettings = {
+  invert: false,
+  brightnessMap: 0,
+  edgeEnhance: 0,
+  blur: 0,
+  quantizeColors: 0,
+};
+
+const NEUTRAL_POST: PostProcessingSettings = {
+  bloom: { enabled: false, threshold: 0.65, intensity: 0.6 },
+  grain: { enabled: false, intensity: 0.25, size: 2, speed: 1 },
+  chromatic: { enabled: false, offset: 2 },
+  scanlines: { enabled: false, opacity: 0.25, spacing: 3 },
+  vignette: { enabled: false, intensity: 0.5, radius: 0.55 },
+  crtCurve: { enabled: false, amount: 0.18 },
+  phosphor: { enabled: false, mode: 'green', color: '#00ff41', intensity: 0.35 },
+};
+
+function isToneNeutral(settings: ToneSettings, processing: ProcessingSettings): boolean {
   return (
     settings.brightness === 1 &&
     settings.contrast === 1 &&
     settings.saturation === 1 &&
     settings.hueRotation === 0 &&
     settings.gamma === 1 &&
-    !settings.invert
+    settings.sharpness === 0 &&
+    settings.invert === processing.invert &&
+    processing.brightnessMap === 0 &&
+    processing.edgeEnhance === 0 &&
+    processing.blur === 0 &&
+    processing.quantizeColors === 0
   );
+}
+
+function resolvePhosphorColor(settings: PostProcessingSettings): [number, number, number] {
+  switch (settings.phosphor.mode) {
+    case 'green':
+      return hexToRgb('#00ff41');
+    case 'amber':
+      return hexToRgb('#ffb000');
+    case 'white':
+      return hexToRgb('#ffffff');
+    default:
+      return hexToRgb(settings.phosphor.color);
+  }
 }
 
 /**
@@ -73,6 +125,12 @@ export class StudioPipeline {
   // Stage-0 Pre-Tone state
   private preToneActive = false;
   private preToneUniforms: Record<string, any>;
+  private currentTone: ToneSettings = { ...NEUTRAL_TONE };
+  private currentProcessing: ProcessingSettings = { ...NEUTRAL_PROCESSING };
+
+  // Global post-processing finishing chain
+  private postSettings: PostProcessingSettings = { ...NEUTRAL_POST };
+  private postUniforms: PostProcessUniforms;
 
   // Active stack & pipeline cache (D-22)
   private currentStack: ActiveEffectPass[] = [];
@@ -107,11 +165,33 @@ export class StudioPipeline {
       saturation: uniform(1.0),
       hueRotation: uniform(0.0),
       gamma: uniform(1.0),
+      sharpness: uniform(0.0),
       invert: uniform(0.0),
+      brightnessMap: uniform(0.0),
+      edgeEnhance: uniform(0.0),
+      blur: uniform(0.0),
+      quantizeColors: uniform(0.0),
     };
     for (const [k, u] of Object.entries(this.preToneUniforms)) {
       this.uniformsMap.set(`${PRE_TONE_ID}:${k}`, u);
     }
+
+    const phosphor = resolvePhosphorColor(NEUTRAL_POST);
+    this.postUniforms = {
+      bloomThreshold: uniform(NEUTRAL_POST.bloom.threshold),
+      bloomIntensity: uniform(NEUTRAL_POST.bloom.intensity),
+      grainIntensity: uniform(NEUTRAL_POST.grain.intensity),
+      grainSize: uniform(NEUTRAL_POST.grain.size),
+      grainSpeed: uniform(NEUTRAL_POST.grain.speed),
+      chromaticOffset: uniform(NEUTRAL_POST.chromatic.offset),
+      scanlineOpacity: uniform(NEUTRAL_POST.scanlines.opacity),
+      scanlineSpacing: uniform(NEUTRAL_POST.scanlines.spacing),
+      vignetteIntensity: uniform(NEUTRAL_POST.vignette.intensity),
+      vignetteRadius: uniform(NEUTRAL_POST.vignette.radius),
+      crtAmount: uniform(NEUTRAL_POST.crtCurve.amount),
+      phosphorIntensity: uniform(NEUTRAL_POST.phosphor.intensity),
+      phosphorColor: uniform(new THREE.Vector3(phosphor[0], phosphor[1], phosphor[2])),
+    };
 
     this.fallbackMaterial = new THREE.MeshBasicNodeMaterial();
     // Linear-space match for #0c0d10 ink so standby canvas blends seamlessly with stage
@@ -151,7 +231,9 @@ export class StudioPipeline {
 
     // 2. Compute topology hash on allowed enabled passes (D-22)
     const newHash = computeTopologyHash(allowedStack);
-    const cacheKey = this.preToneActive ? `${newHash}::preTone` : newHash;
+    const postActive = isPostProcessingActive(this.postSettings);
+    const postKey = postActive ? `::post:${postProcessTopology(this.postSettings)}` : '';
+    const cacheKey = `${newHash}${this.preToneActive ? '::preTone' : ''}${postKey}`;
 
     // Keep glyph ramp lengths synced with the active atlas
     const charCount = this.textureAtlas.getCharCount();
@@ -189,7 +271,8 @@ export class StudioPipeline {
         this.sourceTextureNode,
         stages,
         this.uniformsMap,
-        env
+        env,
+        postActive ? { settings: this.postSettings, uniforms: this.postUniforms } : undefined
       );
       this.pipelineCache.set(cacheKey, pipeline);
     }
@@ -279,19 +362,78 @@ export class StudioPipeline {
 
   /**
    * Updates implicit Stage-0 pre-tone uniforms without mutating activeStack.
-   * Bypassed automatically when all tone settings are neutral.
+   * Bypassed automatically when all tone and processing settings are neutral.
    */
   updateTone(settings: ToneSettings): void {
-    this.preToneUniforms.brightness.value = settings.brightness;
-    this.preToneUniforms.contrast.value = settings.contrast;
-    this.preToneUniforms.saturation.value = settings.saturation;
-    this.preToneUniforms.hueRotation.value = settings.hueRotation;
-    this.preToneUniforms.gamma.value = settings.gamma;
-    this.preToneUniforms.invert.value = settings.invert ? 1.0 : 0.0;
+    this.currentTone = { ...settings };
+    this.applyPreToneUniforms();
+  }
 
-    const nextActive = !isToneNeutral(settings);
+  /** Updates the global Stage-0 processing controls (Grainrad "Processing"). */
+  updateProcessing(settings: ProcessingSettings): void {
+    this.currentProcessing = { ...settings };
+    this.applyPreToneUniforms();
+  }
+
+  private applyPreToneUniforms(): void {
+    const tone = this.currentTone;
+    const processing = this.currentProcessing;
+
+    this.preToneUniforms.brightness.value = tone.brightness;
+    this.preToneUniforms.contrast.value = tone.contrast;
+    this.preToneUniforms.saturation.value = tone.saturation;
+    this.preToneUniforms.hueRotation.value = tone.hueRotation;
+    this.preToneUniforms.gamma.value = tone.gamma;
+    this.preToneUniforms.sharpness.value = tone.sharpness;
+    this.preToneUniforms.invert.value =
+      (tone.invert ? 1.0 : 0.0) !== (processing.invert ? 1.0 : 0.0) ? 1.0 : 0.0;
+    this.preToneUniforms.brightnessMap.value = processing.brightnessMap;
+    this.preToneUniforms.edgeEnhance.value = processing.edgeEnhance;
+    this.preToneUniforms.blur.value = processing.blur;
+    this.preToneUniforms.quantizeColors.value = processing.quantizeColors;
+
+    const nextActive = !isToneNeutral(tone, processing);
     if (nextActive !== this.preToneActive) {
       this.preToneActive = nextActive;
+      this.syncStack(this.currentStack, this.currentTier);
+    }
+  }
+
+  /** Updates the global post-processing finishing chain after the effect stack. */
+  updatePostProcessing(settings: PostProcessingSettings): void {
+    const previousTopology = isPostProcessingActive(this.postSettings)
+      ? postProcessTopology(this.postSettings)
+      : '';
+
+    this.postSettings = {
+      bloom: { ...settings.bloom },
+      grain: { ...settings.grain },
+      chromatic: { ...settings.chromatic },
+      scanlines: { ...settings.scanlines },
+      vignette: { ...settings.vignette },
+      crtCurve: { ...settings.crtCurve },
+      phosphor: { ...settings.phosphor },
+    };
+
+    this.postUniforms.bloomThreshold.value = settings.bloom.threshold;
+    this.postUniforms.bloomIntensity.value = settings.bloom.intensity;
+    this.postUniforms.grainIntensity.value = settings.grain.intensity;
+    this.postUniforms.grainSize.value = settings.grain.size;
+    this.postUniforms.grainSpeed.value = settings.grain.speed;
+    this.postUniforms.chromaticOffset.value = settings.chromatic.offset;
+    this.postUniforms.scanlineOpacity.value = settings.scanlines.opacity;
+    this.postUniforms.scanlineSpacing.value = settings.scanlines.spacing;
+    this.postUniforms.vignetteIntensity.value = settings.vignette.intensity;
+    this.postUniforms.vignetteRadius.value = settings.vignette.radius;
+    this.postUniforms.crtAmount.value = settings.crtCurve.amount;
+    this.postUniforms.phosphorIntensity.value = settings.phosphor.intensity;
+    const phosphor = resolvePhosphorColor(settings);
+    this.postUniforms.phosphorColor.value.set(phosphor[0], phosphor[1], phosphor[2]);
+
+    const nextTopology = isPostProcessingActive(settings)
+      ? postProcessTopology(settings)
+      : '';
+    if (nextTopology !== previousTopology) {
       this.syncStack(this.currentStack, this.currentTier);
     }
   }

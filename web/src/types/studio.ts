@@ -12,6 +12,9 @@ export type MediaType = 'image' | 'video' | 'webcam';
 
 export type ThemeMode = 'dark' | 'light';
 
+/** Grainrad-derived switchable terminal themes (plus the original light theme). */
+export type StudioTheme = 'default' | 'vt320' | 'cassette' | 'coldwar' | 'light';
+
 /** The 16 Grainrad effect modes (D-02). */
 export type EffectMode =
   | 'ascii'
@@ -31,7 +34,18 @@ export type EffectMode =
   | 'voronoi'
   | 'tone';
 
-export type RampPreset = 'standard' | 'dense' | 'simple' | 'blocks';
+/** Grainrad's 10 ASCII character sets. */
+export type RampPreset =
+  | 'standard'
+  | 'blocks'
+  | 'binary'
+  | 'detailed'
+  | 'minimal'
+  | 'alphabetic'
+  | 'numeric'
+  | 'math'
+  | 'symbols'
+  | 'custom';
 
 /** Pre-tone adjustments applied before the primary effect (SHADER-03, D-06 stage 1). */
 export interface ToneSettings {
@@ -46,6 +60,89 @@ export interface ToneSettings {
   /** 0.1..3, 1 = neutral */
   gamma: number;
   invert: boolean;
+  /** 0..1 unsharp-style local contrast, 0 = neutral */
+  sharpness: number;
+}
+
+/** Global Stage-0 processing controls (Grainrad "Processing" section). */
+export interface ProcessingSettings {
+  invert: boolean;
+  /** 0..1 shadow lift / brightness map, 0 = neutral */
+  brightnessMap: number;
+  /** 0..1 edge-enhancement contrast, 0 = neutral */
+  edgeEnhance: number;
+  /** 0..1 gaussian-ish softening, 0 = neutral */
+  blur: number;
+  /** 0 = off, otherwise number of quantized colour levels (2..16) */
+  quantizeColors: number;
+}
+
+export interface BloomSettings {
+  enabled: boolean;
+  threshold: number;
+  intensity: number;
+}
+
+export interface GrainSettings {
+  enabled: boolean;
+  intensity: number;
+  size: number;
+  speed: number;
+}
+
+export interface ChromaticSettings {
+  enabled: boolean;
+  offset: number;
+}
+
+export interface ScanlineSettings {
+  enabled: boolean;
+  opacity: number;
+  spacing: number;
+}
+
+export interface VignetteSettings {
+  enabled: boolean;
+  intensity: number;
+  radius: number;
+}
+
+export interface CrtCurveSettings {
+  enabled: boolean;
+  amount: number;
+}
+
+export type PhosphorMode = 'green' | 'amber' | 'white' | 'custom';
+
+export interface PhosphorSettings {
+  enabled: boolean;
+  mode: PhosphorMode;
+  color: string;
+  intensity: number;
+}
+
+/** Global finishing chain applied AFTER the composable effect stack. */
+export interface PostProcessingSettings {
+  bloom: BloomSettings;
+  grain: GrainSettings;
+  chromatic: ChromaticSettings;
+  scanlines: ScanlineSettings;
+  vignette: VignetteSettings;
+  crtCurve: CrtCurveSettings;
+  phosphor: PhosphorSettings;
+}
+
+/** A serialisable studio look used by built-in and custom presets. */
+export interface StudioPreset {
+  id: string;
+  name: string;
+  builtIn?: boolean;
+  stack: Omit<ActiveEffectPass, 'instanceId'>[];
+  tone: ToneSettings;
+  ascii: AsciiSettings;
+  processing: ProcessingSettings;
+  postProcessing: PostProcessingSettings;
+  studioTheme?: StudioTheme;
 }
 
 /** ASCII engine parameters (SHADER-01, D-07). */

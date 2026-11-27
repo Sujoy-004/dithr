@@ -11,6 +11,10 @@ import type {
   EffectMode,
   EffectParams,
   MediaType,
+  PostProcessingSettings,
+  ProcessingSettings,
+  StudioPreset,
+  StudioTheme,
   ThemeMode,
   ToneSettings,
   ThreeDPrimitiveType,
@@ -23,6 +27,22 @@ import {
   type CrtVhsProfileName,
 } from '../engine/registry/modulate/crtVhs';
 import type { StudioPipeline } from '../engine/Pipeline';
+import {
+  DEFAULT_ASCII,
+  DEFAULT_POST_PROCESSING,
+  DEFAULT_PROCESSING,
+  DEFAULT_TONE,
+  STUDIO_THEME_ORDER,
+} from './defaults';
+import { BUILTIN_STUDIO_PRESETS } from './studioPresets';
+
+export {
+  DEFAULT_TONE,
+  DEFAULT_ASCII,
+  DEFAULT_PROCESSING,
+  DEFAULT_POST_PROCESSING,
+  STUDIO_THEME_ORDER,
+} from './defaults';
 
 interface Pan {
   x: number;
@@ -42,7 +62,18 @@ export interface StudioErrorBanner {
   recovery: string;
 }
 
-export type MobileSheetTab = 'closed' | 'media' | 'shaders' | 'adjust' | 'export' | 'more';
+export type MobileSheetTab =
+  | 'closed'
+  | 'media'
+  | 'shaders'
+  | 'presets'
+  | 'adjust'
+  | 'export'
+  | 'more';
+
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+};
 
 interface StudioState extends MediaState {
   // Viewport HUD (STUDIO-03)
@@ -91,13 +122,36 @@ interface StudioState extends MediaState {
   updateTone: (patch: Partial<ToneSettings>) => void;
   resetTone: () => void;
 
+  // Global Stage-0 processing (Grainrad "Processing")
+  processing: ProcessingSettings;
+  updateProcessing: (patch: Partial<ProcessingSettings>) => void;
+  resetProcessing: () => void;
+
+  // Global post-processing chain after the effect stack
+  postProcessing: PostProcessingSettings;
+  updatePostProcessing: (patch: DeepPartial<PostProcessingSettings>) => void;
+  resetPostProcessing: () => void;
+
   // ASCII engine parameters (SHADER-01)
   ascii: AsciiSettings;
   updateAscii: (patch: Partial<AsciiSettings>) => void;
 
+  // Studio presets (Grainrad built-in + custom JSON import/export)
+  activePresetId: string | null;
+  customPresets: StudioPreset[];
+  applyBuiltInPreset: (id: string) => void;
+  applyCustomPreset: (id: string) => void;
+  saveCustomPreset: (name: string) => string;
+  deleteCustomPreset: (id: string) => void;
+  importCustomPresets: (json: string) => number;
+  exportCustomPresets: () => string;
+
   // Theme (STUDIO-03)
   theme: ThemeMode;
   toggleTheme: () => void;
+  studioTheme: StudioTheme;
+  setStudioTheme: (theme: StudioTheme) => void;
+  cycleStudioTheme: () => void;
 
   // Sidebar collapse (D-03)
   leftCollapsed: boolean;
@@ -160,23 +214,6 @@ interface StudioState extends MediaState {
   setThreeDAutoRotateSpeed: (speed: number) => void;
   resetThreeDCamera: () => void;
 }
-
-export const DEFAULT_TONE: ToneSettings = {
-  brightness: 1,
-  contrast: 1,
-  saturation: 1,
-  hueRotation: 0,
-  gamma: 1,
-  invert: false,
-};
-
-export const DEFAULT_ASCII: AsciiSettings = {
-  cellScale: 8,
-  charSpacing: 0,
-  charAspect: 0.5,
-  rampPreset: 'standard',
-  customChars: '',
-};
 
 export const DEFAULT_EFFECT_PARAMS: EffectParams = {
   ditherSteps: 4,
@@ -250,6 +287,123 @@ function generateInstanceId(effectId: string): string {
     return `${effectId}-${crypto.randomUUID().slice(0, 8)}`;
   }
   return `${effectId}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+const THEME_STORAGE_KEY = 'dithr.studioTheme';
+const PRESET_STORAGE_KEY = 'dithr.customPresets';
+
+function readStoredTheme(): StudioTheme {
+  if (typeof localStorage === 'undefined') return 'default';
+  try {
+    const raw = localStorage.getItem(THEME_STORAGE_KEY) as StudioTheme | null;
+    if (raw && (STUDIO_THEME_ORDER as readonly string[]).includes(raw)) return raw;
+  } catch {
+    // storage unavailable
+  }
+  return 'default';
+}
+
+function persistTheme(theme: StudioTheme): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // ignore quota/security errors
+  }
+}
+
+function readStoredPresets(): StudioPreset[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isPresetLike).map(normalizePreset) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistPresets(presets: StudioPreset[]): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
+  } catch {
+    // ignore quota/security errors
+  }
+}
+
+function isPresetLike(value: any): boolean {
+  return !!value && typeof value === 'object' && typeof value.name === 'string' && Array.isArray(value.stack);
+}
+
+function normalizePreset(value: any): StudioPreset {
+  return {
+    id: typeof value.id === 'string' && value.id ? value.id : `custom-${generateInstanceId('preset')}`,
+    name: String(value.name || 'Untitled'),
+    builtIn: false,
+    stack: value.stack.map((entry: any) => ({
+      effectId: canonicalizeEffectId(String(entry.effectId)),
+      enabled: entry.enabled !== false,
+      intensity: typeof entry.intensity === 'number' ? entry.intensity : 1,
+      blendMode: entry.blendMode ?? 'normal',
+      parameters: { ...(entry.parameters ?? {}) },
+    })),
+    tone: { ...DEFAULT_TONE, ...(value.tone ?? {}) },
+    ascii: { ...DEFAULT_ASCII, ...(value.ascii ?? {}) },
+    processing: { ...DEFAULT_PROCESSING, ...(value.processing ?? {}) },
+    postProcessing: {
+      bloom: { ...DEFAULT_POST_PROCESSING.bloom, ...(value.postProcessing?.bloom ?? {}) },
+      grain: { ...DEFAULT_POST_PROCESSING.grain, ...(value.postProcessing?.grain ?? {}) },
+      chromatic: { ...DEFAULT_POST_PROCESSING.chromatic, ...(value.postProcessing?.chromatic ?? {}) },
+      scanlines: { ...DEFAULT_POST_PROCESSING.scanlines, ...(value.postProcessing?.scanlines ?? {}) },
+      vignette: { ...DEFAULT_POST_PROCESSING.vignette, ...(value.postProcessing?.vignette ?? {}) },
+      crtCurve: { ...DEFAULT_POST_PROCESSING.crtCurve, ...(value.postProcessing?.crtCurve ?? {}) },
+      phosphor: { ...DEFAULT_POST_PROCESSING.phosphor, ...(value.postProcessing?.phosphor ?? {}) },
+    },
+    studioTheme: (STUDIO_THEME_ORDER as readonly string[]).includes(value.studioTheme)
+      ? (value.studioTheme as StudioTheme)
+      : undefined,
+  };
+}
+
+function materializeStack(entries: StudioPreset['stack']): ActiveEffectPass[] {
+  return entries.map((entry) => {
+    const effectId = canonicalizeEffectId(entry.effectId);
+    const def = getEffectDefinition(effectId);
+    const parameters: Record<string, any> = {};
+    if (def) {
+      for (const [key, schema] of Object.entries(def.parameters)) {
+        parameters[key] = schema.default;
+      }
+    }
+    Object.assign(parameters, entry.parameters ?? {});
+    return {
+      instanceId: generateInstanceId(effectId),
+      effectId,
+      enabled: entry.enabled !== false,
+      intensity: typeof entry.intensity === 'number' ? entry.intensity : 1,
+      blendMode: entry.blendMode ?? 'normal',
+      parameters,
+    };
+  });
+}
+
+function snapshotFromState(state: StudioState): Omit<StudioPreset, 'id' | 'name' | 'builtIn'> {
+  return {
+    stack: state.activeStack.map((pass) => ({
+      effectId: pass.effectId,
+      enabled: pass.enabled,
+      intensity: pass.intensity,
+      blendMode: pass.blendMode,
+      parameters: structuredClone(pass.parameters),
+    })),
+    tone: { ...state.tone },
+    ascii: { ...state.ascii },
+    processing: { ...state.processing },
+    postProcessing: structuredClone(state.postProcessing),
+    studioTheme: state.studioTheme,
+  };
 }
 
 let activeObjectUrl: string | null = null;
@@ -579,6 +733,37 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     set({ tone: DEFAULT_TONE });
   },
 
+  processing: DEFAULT_PROCESSING,
+  updateProcessing: (patch) => {
+    const next = { ...get().processing, ...patch };
+    activePipeline?.updateProcessing(next);
+    set({ processing: next });
+  },
+  resetProcessing: () => {
+    activePipeline?.updateProcessing(DEFAULT_PROCESSING);
+    set({ processing: DEFAULT_PROCESSING });
+  },
+
+  postProcessing: DEFAULT_POST_PROCESSING,
+  updatePostProcessing: (patch) => {
+    const current = get().postProcessing;
+    const next: PostProcessingSettings = {
+      bloom: { ...current.bloom, ...(patch.bloom ?? {}) },
+      grain: { ...current.grain, ...(patch.grain ?? {}) },
+      chromatic: { ...current.chromatic, ...(patch.chromatic ?? {}) },
+      scanlines: { ...current.scanlines, ...(patch.scanlines ?? {}) },
+      vignette: { ...current.vignette, ...(patch.vignette ?? {}) },
+      crtCurve: { ...current.crtCurve, ...(patch.crtCurve ?? {}) },
+      phosphor: { ...current.phosphor, ...(patch.phosphor ?? {}) },
+    };
+    activePipeline?.updatePostProcessing(next);
+    set({ postProcessing: next });
+  },
+  resetPostProcessing: () => {
+    activePipeline?.updatePostProcessing(DEFAULT_POST_PROCESSING);
+    set({ postProcessing: structuredClone(DEFAULT_POST_PROCESSING) });
+  },
+
   ascii: DEFAULT_ASCII,
   updateAscii: (patch) => {
     const nextAscii = { ...get().ascii, ...patch };
@@ -586,8 +771,119 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     set({ ascii: nextAscii });
   },
 
-  theme: 'dark',
-  toggleTheme: () => set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
+  activePresetId: null,
+  customPresets: readStoredPresets(),
+
+  applyBuiltInPreset: (id) => {
+    const preset = BUILTIN_STUDIO_PRESETS.find((item) => item.id === id);
+    if (!preset) return;
+    const stack = materializeStack(preset.stack);
+    activePipeline?.syncStack(stack, get().activeTier);
+    activePipeline?.updateTone(preset.tone);
+    activePipeline?.updateProcessing(preset.processing);
+    activePipeline?.updatePostProcessing(preset.postProcessing);
+    activePipeline?.updateAscii(preset.ascii);
+    set({
+      activeStack: stack,
+      selectedPassId: stack[0]?.instanceId ?? null,
+      effect: stack[0] ? toUiEffectMode(stack[0].effectId) : null,
+      tone: { ...preset.tone },
+      ascii: { ...preset.ascii },
+      processing: { ...preset.processing },
+      postProcessing: structuredClone(preset.postProcessing),
+      activePresetId: preset.id,
+    });
+    if (preset.studioTheme) get().setStudioTheme(preset.studioTheme);
+  },
+
+  applyCustomPreset: (id) => {
+    const preset = get().customPresets.find((item) => item.id === id);
+    if (!preset) return;
+    const stack = materializeStack(preset.stack);
+    activePipeline?.syncStack(stack, get().activeTier);
+    activePipeline?.updateTone(preset.tone);
+    activePipeline?.updateProcessing(preset.processing);
+    activePipeline?.updatePostProcessing(preset.postProcessing);
+    activePipeline?.updateAscii(preset.ascii);
+    set({
+      activeStack: stack,
+      selectedPassId: stack[0]?.instanceId ?? null,
+      effect: stack[0] ? toUiEffectMode(stack[0].effectId) : null,
+      tone: { ...preset.tone },
+      ascii: { ...preset.ascii },
+      processing: { ...preset.processing },
+      postProcessing: structuredClone(preset.postProcessing),
+      activePresetId: preset.id,
+    });
+    if (preset.studioTheme) get().setStudioTheme(preset.studioTheme);
+  },
+
+  saveCustomPreset: (name) => {
+    const id = `custom-${generateInstanceId('preset')}`;
+    const preset: StudioPreset = {
+      id,
+      name: name.trim() || 'Untitled preset',
+      builtIn: false,
+      ...snapshotFromState(get()),
+    };
+    const next = [...get().customPresets, preset];
+    persistPresets(next);
+    set({ customPresets: next, activePresetId: id });
+    return id;
+  },
+
+  deleteCustomPreset: (id) => {
+    const next = get().customPresets.filter((preset) => preset.id !== id);
+    persistPresets(next);
+    set((state) => ({
+      customPresets: next,
+      activePresetId: state.activePresetId === id ? null : state.activePresetId,
+    }));
+  },
+
+  importCustomPresets: (json) => {
+    let parsed: any;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      return 0;
+    }
+    const candidates = Array.isArray(parsed) ? parsed : parsed?.presets;
+    if (!Array.isArray(candidates)) return 0;
+
+    const imported = candidates.filter(isPresetLike).map((value) => ({
+      ...normalizePreset(value),
+      builtIn: false,
+    }));
+    if (imported.length === 0) return 0;
+
+    const merged = [...get().customPresets];
+    for (const preset of imported) {
+      const existingIndex = merged.findIndex((item) => item.id === preset.id);
+      if (existingIndex >= 0) merged[existingIndex] = preset;
+      else merged.push(preset);
+    }
+    persistPresets(merged);
+    set({ customPresets: merged });
+    return imported.length;
+  },
+
+  exportCustomPresets: () => JSON.stringify(get().customPresets, null, 2),
+
+  theme: readStoredTheme() === 'light' ? 'light' : 'dark',
+  studioTheme: readStoredTheme(),
+  toggleTheme: () => {
+    get().setStudioTheme(get().theme === 'dark' ? 'light' : 'default');
+  },
+  setStudioTheme: (studioTheme) => {
+    persistTheme(studioTheme);
+    set({ studioTheme, theme: studioTheme === 'light' ? 'light' : 'dark' });
+  },
+  cycleStudioTheme: () => {
+    const currentIndex = STUDIO_THEME_ORDER.indexOf(get().studioTheme);
+    const next = STUDIO_THEME_ORDER[(currentIndex + 1) % STUDIO_THEME_ORDER.length];
+    get().setStudioTheme(next);
+  },
 
   leftCollapsed: typeof window !== 'undefined' ? window.innerWidth < 768 : false,
   rightCollapsed: typeof window !== 'undefined' ? window.innerWidth < 768 : false,

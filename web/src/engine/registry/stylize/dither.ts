@@ -13,6 +13,8 @@ import {
 import type { EffectDefinition } from '../types';
 import { linearTosRGBChannel, sRGBToLinearChannel } from '../../color/colorSpace';
 import { toNode, resolveSelectNode, sampleWithEnv } from '../tslHelpers';
+import { PALETTE_OPTIONS } from '../../../store/palettes';
+import { buildPaletteNode } from '../paletteNode';
 
 const MATRIX_TYPES = ['bayer4', 'bayer8', 'bayer2', 'ign'] as const;
 
@@ -63,6 +65,11 @@ export const ditherEffect: EffectDefinition = {
       type: 'boolean',
       default: false,
     },
+    palette: {
+      type: 'select',
+      default: 'none',
+      options: [...PALETTE_OPTIONS],
+    },
   },
   buildNode: (inputNode, uniforms, env) => {
     const colorSteps = toNode(uniforms.colorSteps, 4.0);
@@ -70,6 +77,7 @@ export const ditherEffect: EffectDefinition = {
     const pixelSize = toNode(uniforms.pixelSize, 2.0);
     const matrixIdx = resolveSelectNode(uniforms.matrixType, MATRIX_TYPES, 1);
     const monochrome = toNode(uniforms.monochrome, 0.0);
+    const paletteIdx = resolveSelectNode(uniforms.palette, PALETTE_OPTIONS, 0);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
@@ -131,11 +139,17 @@ export const ditherEffect: EffectDefinition = {
         .div(stepsMinus1)
         .clamp(0.0, 1.0);
 
-      const finalRGB = vec3(
+      const quantizedLinear = vec3(
         sRGBToLinearChannel(quantizedSrgb.r),
         sRGBToLinearChannel(quantizedSrgb.g),
         sRGBToLinearChannel(quantizedSrgb.b)
       );
+
+      const quantizedLum = quantizedSrgb.r
+        .mul(0.299)
+        .add(quantizedSrgb.g.mul(0.587))
+        .add(quantizedSrgb.b.mul(0.114));
+      const finalRGB = buildPaletteNode(quantizedLinear, quantizedLum, paletteIdx);
 
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();

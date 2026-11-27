@@ -316,4 +316,63 @@ test.describe('Shader Engine 2.0 Visual Verification & Composable Stack', () => 
       expect(dimensions.height).toBe(res.height);
     }
   });
+
+  test('5. Grainrad themes, presets, and post-processing pipeline verification', async ({
+    page,
+  }) => {
+    // 1. Theme cycling through all Grainrad terminal themes via toolbar button
+    const themeBtn = page.locator('button[aria-label^="Theme:"]');
+    await expect(themeBtn).toBeVisible();
+
+    // Initial theme is default
+    let themeAttr = await page.evaluate(() => document.documentElement.dataset.theme);
+    expect(themeAttr).toBe('default');
+
+    // Cycle to vt320
+    await themeBtn.click();
+    themeAttr = await page.evaluate(() => document.documentElement.dataset.theme);
+    expect(themeAttr).toBe('vt320');
+
+    // Cycle to cassette
+    await themeBtn.click();
+    themeAttr = await page.evaluate(() => document.documentElement.dataset.theme);
+    expect(themeAttr).toBe('cassette');
+
+    // Cycle to coldwar
+    await themeBtn.click();
+    themeAttr = await page.evaluate(() => document.documentElement.dataset.theme);
+    expect(themeAttr).toBe('coldwar');
+
+    // 2. Built-in preset application (terminal-green)
+    await page.evaluate(() => {
+      (window as any).useStudioStore.getState().applyBuiltInPreset('terminal-green');
+    });
+
+    const activeStack = await page.evaluate(() =>
+      (window as any).useStudioStore.getState().activeStack.map((p: any) => p.effectId)
+    );
+    expect(activeStack).toEqual(['ascii']);
+
+    const postState = await page.evaluate(
+      () => (window as any).useStudioStore.getState().postProcessing
+    );
+    expect(postState.phosphor.enabled).toBe(true);
+    expect(postState.scanlines.enabled).toBe(true);
+
+    const presetFrame = await sampleCanvasFrame(page);
+    expect(presetFrame.hasNaN).toBe(false);
+    expect(presetFrame.isBlack).toBe(false);
+
+    // 3. Post-processing bloom toggle affects canvas output without blacking out
+    await page.evaluate(() => {
+      const store = (window as any).useStudioStore;
+      store.getState().updatePostProcessing({
+        bloom: { enabled: true, threshold: 0.2, intensity: 1.0 },
+      });
+    });
+
+    const bloomFrame = await sampleCanvasFrame(page);
+    expect(bloomFrame.hasNaN).toBe(false);
+    expect(bloomFrame.isBlack).toBe(false);
+  });
 });

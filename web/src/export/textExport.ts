@@ -1,4 +1,4 @@
-import { CHAR_PRESETS, DEFAULT_CHAR_ASPECT } from '../store/presets';
+import { resolveChars, DEFAULT_CHAR_ASPECT } from '../store/presets';
 import type { RampPreset } from '../types/studio';
 import { downloadText } from './download';
 
@@ -18,10 +18,7 @@ export function exportAsciiText(
   source: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement,
   options: AsciiTextOptions = {}
 ): string {
-  const chars =
-    options.customChars && options.customChars.length > 0
-      ? options.customChars
-      : CHAR_PRESETS[options.rampPreset ?? 'standard'];
+  const chars = resolveChars(options.rampPreset ?? 'standard', options.customChars);
 
   const cols = options.cols ?? 100;
   const charAspect = options.charAspect ?? DEFAULT_CHAR_ASPECT;

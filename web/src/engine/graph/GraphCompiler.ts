@@ -6,6 +6,17 @@ import type {
   EffectDefinition,
   EffectEnvironment,
 } from '../registry/types';
+import type { PostProcessingSettings } from '../../types/studio';
+import {
+  buildPostProcessNode,
+  isPostProcessingActive,
+  type PostProcessUniforms,
+} from '../registry/modulate/postProcess';
+
+export interface PostProcessCompileOptions {
+  settings: PostProcessingSettings;
+  uniforms: PostProcessUniforms;
+}
 
 export type StageType = 'fused_fragment' | 'intermediate_target';
 
@@ -143,7 +154,8 @@ export function compileGraph(
   stages: ExecutionStage[],
   uniformsMap: Map<string, any> = new Map(),
   env?: EffectEnvironment,
-  registry: EffectRegistry = effectRegistry
+  registry: EffectRegistry = effectRegistry,
+  postProcess?: PostProcessCompileOptions
 ): CompiledPipeline {
   const stageDescriptors: StageDescriptor[] = [];
   const dummyTexture = new THREE.Texture();
@@ -154,6 +166,7 @@ export function compileGraph(
 
   const standbyColor = vec4(0.004, 0.0045, 0.006, 1.0);
   const preToneDef = env?.preToneActive && env?.preToneUniforms ? registry.get('tone') : undefined;
+  const postActive = !!postProcess && isPostProcessingActive(postProcess.settings);
 
   // If no stages are active, compile a direct passthrough stage (with optional Stage-0 pre-tone)
   if (stages.length === 0) {
@@ -161,7 +174,7 @@ export function compileGraph(
       id: 'stage_0',
       type: 'fused_fragment',
       passes: [],
-      requiresTarget: false,
+      requiresTarget: postActive,
     };
 
     let finalColor = sourceNode ? sourceNode : standbyColor;
@@ -177,16 +190,50 @@ export function compileGraph(
       stage: passthroughStage,
       material: mat,
       colorNode: finalColor,
+      targetDescriptor: postActive
+        ? { format: THREE.RGBAFormat, type: THREE.HalfFloatType }
+        : undefined,
     });
+
+    let finalMaterial = mat;
+    const compiledStages: ExecutionStage[] = [passthroughStage];
+
+    if (postActive && postProcess) {
+      const postStage: ExecutionStage = {
+        id: 'stage_post',
+        type: 'intermediate_target',
+        passes: [],
+        requiresTarget: false,
+      };
+      const inputTextureNode = texture(dummyTexture);
+      const postColor = buildPostProcessNode(inputTextureNode, postProcess.settings, postProcess.uniforms, {
+        ...env,
+        sampleAt: (uvCoord: any) => inputTextureNode.sample(uvCoord),
+      });
+      const postMat = new THREE.MeshBasicNodeMaterial();
+      postMat.colorNode = postColor;
+      postMat.needsUpdate = true;
+
+      compiledStages.push(postStage);
+      stageDescriptors.push({
+        stage: postStage,
+        material: postMat,
+        colorNode: postColor,
+        inputTextureNode,
+      });
+      finalMaterial = postMat;
+    }
 
     return {
       topologyHash: '__empty__',
-      stages: [passthroughStage],
+      stages: compiledStages,
       stageDescriptors,
-      finalMaterial: mat,
+      finalMaterial,
       uniformsMap,
-      intermediateTargetCount: 0,
-      dispose: () => mat.dispose(),
+      intermediateTargetCount: postActive ? 1 : 0,
+      dispose: () => {
+        for (const desc of stageDescriptors) desc.material.dispose();
+      },
     };
   }
 
@@ -317,12 +364,50 @@ export function compileGraph(
     });
   }
 
+  let compiledStages: ExecutionStage[] = stages;
+
+  // Append the global finishing stage, promoting the previous final stage to an
+  // intermediate HalfFloat target so spatial post-FX can sample its output.
+  if (postActive && postProcess) {
+    const previous = stageDescriptors[stageDescriptors.length - 1];
+    previous.stage.requiresTarget = true;
+    previous.targetDescriptor = { format: THREE.RGBAFormat, type: THREE.HalfFloatType };
+
+    const postStage: ExecutionStage = {
+      id: 'stage_post',
+      type: 'intermediate_target',
+      passes: [],
+      requiresTarget: false,
+    };
+    const inputTextureNode = texture(dummyTexture);
+    const postColor = buildPostProcessNode(
+      inputTextureNode,
+      postProcess.settings,
+      postProcess.uniforms,
+      {
+        ...env,
+        sampleAt: (uvCoord: any) => inputTextureNode.sample(uvCoord),
+      }
+    );
+    const postMat = new THREE.MeshBasicNodeMaterial();
+    postMat.colorNode = postColor;
+    postMat.needsUpdate = true;
+
+    stageDescriptors.push({
+      stage: postStage,
+      material: postMat,
+      colorNode: postColor,
+      inputTextureNode,
+    });
+    compiledStages = [...stages, postStage];
+  }
+
   const finalMaterial = stageDescriptors[stageDescriptors.length - 1].material;
-  const intermediateTargetCount = stages.filter((s) => s.requiresTarget).length;
+  const intermediateTargetCount = compiledStages.filter((s) => s.requiresTarget).length;
 
   return {
     topologyHash: computeTopologyHash(stages.flatMap((s) => s.passes)),
-    stages,
+    stages: compiledStages,
     stageDescriptors,
     finalMaterial,
     uniformsMap,
@@ -353,8 +438,9 @@ export class GraphCompiler {
     sourceNode: any,
     stages: ExecutionStage[],
     uniformsMap: Map<string, any> = new Map(),
-    env?: EffectEnvironment
+    env?: EffectEnvironment,
+    postProcess?: PostProcessCompileOptions
   ): CompiledPipeline {
-    return compileGraph(sourceNode, stages, uniformsMap, env, this.registry);
+    return compileGraph(sourceNode, stages, uniformsMap, env, this.registry, postProcess);
   }
 }

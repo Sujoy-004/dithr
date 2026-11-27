@@ -1,5 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { useState, useRef, useEffect, type CSSProperties } from 'react';
 
 export interface ParameterSliderProps {
   label: string;
@@ -14,10 +13,11 @@ export interface ParameterSliderProps {
 }
 
 /**
- * Shared accessible studio parameter slider:
- * - Tabular readout
- * - Double-click (or press Enter on the value readout) for direct numeric input
- * - Per-control reset button when value differs from default
+ * Grainrad-style hairline parameter slider:
+ * - 1px track with a filled progress segment and 8px dot thumb
+ * - Tabular monospace readout
+ * - Double-click (or Enter on the readout) for direct numeric entry
+ * - Inline subtle `reset` affordance when the value differs from its default
  */
 export default function ParameterSlider({
   label,
@@ -56,20 +56,23 @@ export default function ParameterSlider({
   const showReset =
     defaultValue !== undefined && Math.abs(value - defaultValue) > (isInt ? 0.5 : 0.001);
 
+  const range = max - min;
+  const pct = range > 0 ? Math.min(100, Math.max(0, ((value - min) / range) * 100)) : 0;
+
   return (
-    <div className="flex flex-col gap-0.5">
-      <div className="flex h-6 items-center justify-between gap-2 text-control">
+    <div className="group/slider flex flex-col gap-1">
+      <div className="flex h-5 items-center justify-between gap-2 text-control">
         <span className="truncate text-default">{label}</span>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex shrink-0 items-center gap-1.5">
           {showReset && (
             <button
               type="button"
               onClick={() => onChange(defaultValue!)}
               aria-label={`Reset ${label} to default`}
               title={`Reset ${label}`}
-              className="flex h-5 w-5 items-center justify-center rounded-sm text-dim hover:bg-active hover:text-highlight"
+              className="text-[10px] uppercase tracking-wider text-dim hover:text-highlight"
             >
-              <RotateCcw size={11} strokeWidth={1.75} aria-hidden />
+              reset
             </button>
           )}
           {editing ? (
@@ -124,6 +127,11 @@ export default function ParameterSlider({
         aria-valuetext={format(value)}
         data-slider="true"
         className="w-full cursor-ew-resize bg-transparent"
+        style={
+          {
+            '--slider-fill': `${pct}%`,
+          } as CSSProperties
+        }
       />
     </div>
   );

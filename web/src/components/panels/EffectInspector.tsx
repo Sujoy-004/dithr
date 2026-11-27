@@ -3,6 +3,8 @@ import { getEffectDefinition } from '../../engine/registry';
 import type { BlendMode, RampPreset } from '../../types/studio';
 import { Sliders } from 'lucide-react';
 import ParameterSlider from '../ui/ParameterSlider';
+import { CHAR_PRESET_LIST } from '../../store/presets';
+import { RETRO_PALETTE_LIST } from '../../store/palettes';
 
 export interface EffectInspectorProps {
   onParamChange?: (key: string, value: any) => void;
@@ -188,6 +190,55 @@ export default function EffectInspector({ onParamChange }: EffectInspectorProps)
             return null;
           })}
 
+        {definition?.parameters.palette && (
+          <div className="flex flex-col gap-1.5 border-t border-hairline pt-2.5">
+            <div className="flex items-center justify-between text-control text-default">
+              <span>retro palette</span>
+              <button
+                type="button"
+                onClick={() => updatePassParam(selectedPass.instanceId, 'palette', 'none')}
+                className="text-[10px] uppercase tracking-wider text-dim hover:text-highlight"
+              >
+                clear
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-1">
+              {RETRO_PALETTE_LIST.map((palette) => {
+                const active = String(selectedPass.parameters.palette ?? 'none') === palette.id;
+                return (
+                  <button
+                    key={palette.id}
+                    type="button"
+                    onClick={() =>
+                      updatePassParam(selectedPass.instanceId, 'palette', palette.id)
+                    }
+                    aria-pressed={active}
+                    title={palette.label}
+                    className={`flex h-7 flex-col justify-center gap-0.5 border px-1 transition-colors ${
+                      active
+                        ? 'border-highlight bg-active'
+                        : 'border-hairline bg-raised hover:border-border-strong'
+                    }`}
+                  >
+                    <span className="flex h-2 w-full">
+                      {palette.colors.slice(0, 6).map((color) => (
+                        <span
+                          key={color}
+                          className="h-full flex-1"
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </span>
+                    <span className="truncate text-[9px] uppercase tracking-wider text-dim">
+                      {palette.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {selectedPass.effectId === 'ascii' && (
           <div className="flex flex-col gap-2 border-t border-hairline pt-2.5">
             <label className="flex h-7 items-center justify-between text-control text-default">
@@ -200,9 +251,11 @@ export default function EffectInspector({ onParamChange }: EffectInspectorProps)
                 className="h-7 border border-hairline bg-raised px-2 text-control text-highlight hover:bg-active"
               >
                 <option value="standard">standard</option>
-                <option value="dense">dense</option>
-                <option value="simple">simple</option>
-                <option value="blocks">blocks</option>
+                {CHAR_PRESET_LIST.filter((p) => p.id !== 'standard').map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label.toLowerCase()}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="flex h-7 items-center justify-between gap-2 text-control text-default">

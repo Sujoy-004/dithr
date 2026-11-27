@@ -6,13 +6,15 @@ import EffectInspector from '../panels/EffectInspector';
 import AudioPanel from '../panels/AudioPanel';
 import ThreeDPanel from '../panels/ThreeDPanel';
 import ToneControls from '../panels/ToneControls';
+import ProcessingPanel from '../panels/ProcessingPanel';
+import PostProcessingPanel from '../panels/PostProcessingPanel';
 import ExportDrawer from '../panels/ExportDrawer';
 
 /**
- * Desktop right docked inspector rail (296px). Hidden on < 768px where
+ * Desktop right docked inspector rail (352px). Hidden on < 768px where
  * MobileSheet renders controls as a bottom sheet.
- * Keeps Parameters, Tone, and Export prominent (expanded by default) and
- * Audio/3D tucked into collapsible accordions.
+ * Order follows Grainrad: Settings, Processing, Post-Processing, Export,
+ * then Audio and 3D tucked into collapsible accordions.
  */
 export default function RightRail() {
   const rightCollapsed = useStudioStore((s) => s.rightCollapsed);
@@ -22,10 +24,15 @@ export default function RightRail() {
   const selectedPassId = useStudioStore((s) => s.selectedPassId);
   const audioState = useStudioStore((s) => s.audioState);
   const threeDState = useStudioStore((s) => s.threeDState);
+  const processing = useStudioStore((s) => s.processing);
+  const post = useStudioStore((s) => s.postProcessing);
+  const resetTone = useStudioStore((s) => s.resetTone);
 
   const [openSections, setOpenSections] = useState({
     params: true,
-    tone: true,
+    settings: true,
+    processing: false,
+    post: false,
     export: true,
     audio: false,
     threeD: false,
@@ -38,6 +45,14 @@ export default function RightRail() {
   const selectedPass = activeStack.find((p) => p.instanceId === selectedPassId);
   const def = selectedPass ? getEffectDefinition(selectedPass.effectId) : undefined;
   const effectTitle = def?.label || selectedPass?.effectId || 'none';
+
+  const processingActive =
+    processing.invert ||
+    processing.brightnessMap > 0 ||
+    processing.edgeEnhance > 0 ||
+    processing.blur > 0 ||
+    processing.quantizeColors > 1;
+  const postActive = Object.values(post).some((stage: any) => stage.enabled);
 
   if (rightCollapsed) {
     return (
@@ -72,7 +87,7 @@ export default function RightRail() {
 
   return (
     <aside
-      className="hidden md:flex w-[296px] shrink-0 flex-col overflow-y-auto border-l border-hairline bg-base"
+      className="hidden md:flex w-[22rem] shrink-0 flex-col overflow-y-auto border-l border-hairline bg-base"
       aria-label="Right rail"
     >
       <CollapsibleGroup
@@ -87,12 +102,50 @@ export default function RightRail() {
       </CollapsibleGroup>
 
       <CollapsibleGroup
-        title="Tone curve"
+        title="Settings"
         state="Rec. 601"
-        open={openSections.tone}
-        onToggle={() => toggleSection('tone')}
+        open={openSections.settings}
+        onToggle={() => toggleSection('settings')}
+        action={
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(event) => {
+              event.stopPropagation();
+              resetTone();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                event.stopPropagation();
+                resetTone();
+              }
+            }}
+            className="text-[10px] uppercase tracking-wider text-dim hover:text-highlight"
+          >
+            reset
+          </span>
+        }
       >
         <ToneControls />
+      </CollapsibleGroup>
+
+      <CollapsibleGroup
+        title="Processing"
+        state={processingActive ? 'global' : 'off'}
+        open={openSections.processing}
+        onToggle={() => toggleSection('processing')}
+      >
+        <ProcessingPanel />
+      </CollapsibleGroup>
+
+      <CollapsibleGroup
+        title="Post-Processing"
+        state={postActive ? 'global' : 'off'}
+        open={openSections.post}
+        onToggle={() => toggleSection('post')}
+      >
+        <PostProcessingPanel />
       </CollapsibleGroup>
 
       <CollapsibleGroup
@@ -142,34 +195,39 @@ function CollapsibleGroup({
   state,
   open,
   onToggle,
+  action,
   children,
 }: {
   title: string;
   state: string;
   open: boolean;
   onToggle: () => void;
+  action?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="border-t border-hairline first:border-t-0">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className="flex h-10 w-full items-center justify-between px-4 text-control text-highlight hover:bg-raised transition-colors"
-      >
-        <span className="flex items-center gap-1.5 font-semibold">
-          {open ? (
-            <ChevronDown size={13} strokeWidth={2} aria-hidden />
-          ) : (
-            <ChevronRight size={13} strokeWidth={2} aria-hidden />
-          )}
-          <span>{title}</span>
-        </span>
-        <span className="max-w-[120px] truncate text-[11px] font-normal tabular-nums text-dim">
+      <div className="flex h-10 w-full items-center justify-between gap-2 px-4 hover:bg-raised transition-colors">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-control text-highlight"
+        >
+          <span className="flex items-center gap-1.5 font-semibold">
+            {open ? (
+              <ChevronDown size={13} strokeWidth={2} aria-hidden />
+            ) : (
+              <ChevronRight size={13} strokeWidth={2} aria-hidden />
+            )}
+            <span>{title}</span>
+          </span>
+        </button>
+        {action}
+        <span className="max-w-[110px] truncate text-[11px] font-normal tabular-nums text-dim">
           {state}
         </span>
-      </button>
+      </div>
       {open && children}
     </section>
   );

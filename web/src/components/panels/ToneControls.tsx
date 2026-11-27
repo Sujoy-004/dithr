@@ -53,6 +53,16 @@ export default function ToneControls() {
         onChange={(hueRotation) => updateTone({ hueRotation })}
       />
       <ParameterSlider
+        label="sharpness"
+        value={tone.sharpness}
+        defaultValue={DEFAULT_TONE.sharpness}
+        min={0}
+        max={1}
+        step={0.01}
+        format={(v) => v.toFixed(2)}
+        onChange={(sharpness) => updateTone({ sharpness })}
+      />
+      <ParameterSlider
         label="gamma"
         value={tone.gamma}
         defaultValue={DEFAULT_TONE.gamma}

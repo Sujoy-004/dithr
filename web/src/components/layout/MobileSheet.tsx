@@ -1,8 +1,11 @@
 import { ChevronDown } from 'lucide-react';
 import { useStudioStore, type MobileSheetTab } from '../../store/useStudioStore';
 import SourceAndShaderPanel from '../panels/SourceAndShaderPanel';
+import PresetsPanel from '../panels/PresetsPanel';
 import EffectInspector from '../panels/EffectInspector';
 import ToneControls from '../panels/ToneControls';
+import ProcessingPanel from '../panels/ProcessingPanel';
+import PostProcessingPanel from '../panels/PostProcessingPanel';
 import ExportDrawer from '../panels/ExportDrawer';
 import AudioPanel from '../panels/AudioPanel';
 import ThreeDPanel from '../panels/ThreeDPanel';
@@ -10,6 +13,7 @@ import ThreeDPanel from '../panels/ThreeDPanel';
 const TABS: { id: Exclude<MobileSheetTab, 'closed'>; label: string }[] = [
   { id: 'media', label: 'Media' },
   { id: 'shaders', label: 'Shaders' },
+  { id: 'presets', label: 'Presets' },
   { id: 'adjust', label: 'Adjust' },
   { id: 'export', label: 'Export' },
   { id: 'more', label: 'Audio / 3D' },
@@ -73,6 +77,7 @@ export default function MobileSheet() {
         <div className="max-h-[54dvh] overflow-y-auto border-t border-hairline pt-2 pb-4">
           {mobileSheetTab === 'media' && <SourceAndShaderPanel section="media" />}
           {mobileSheetTab === 'shaders' && <SourceAndShaderPanel section="shaders" />}
+          {mobileSheetTab === 'presets' && <PresetsPanel />}
           {mobileSheetTab === 'adjust' && (
             <div className="flex flex-col gap-4">
               <div className="px-4">
@@ -80,8 +85,16 @@ export default function MobileSheet() {
                 <EffectInspector />
               </div>
               <div className="border-t border-hairline pt-3">
-                <h2 className="mb-2 px-4 text-[11px] font-semibold text-dim">Tone curve</h2>
+                <h2 className="mb-2 px-4 text-[11px] font-semibold text-dim">Settings</h2>
                 <ToneControls />
+              </div>
+              <div className="border-t border-hairline pt-3">
+                <h2 className="mb-2 px-4 text-[11px] font-semibold text-dim">Processing</h2>
+                <ProcessingPanel />
+              </div>
+              <div className="border-t border-hairline pt-3">
+                <h2 className="mb-2 px-4 text-[11px] font-semibold text-dim">Post-Processing</h2>
+                <PostProcessingPanel />
               </div>
             </div>
           )}

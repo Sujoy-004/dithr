@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type {
+  DragEvent as ReactDragEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from 'react';
 import * as THREE from 'three/webgpu';
-import { X } from 'lucide-react';
+import { Maximize2, Minimize2, Palette, Webcam, X } from 'lucide-react';
 import { useStudioStore, registerVideoElement, registerPipeline } from '../../store/useStudioStore';
 import { StudioPipeline } from '../../engine/Pipeline';
 import { detectGpuCapabilities, TIER_CONFIGS, type QualityTier } from '../../engine/capabilities';
@@ -74,6 +78,10 @@ export default function CenterStage() {
   const setPlaybackTime = useStudioStore((s) => s.setPlaybackTime);
   const setDuration = useStudioStore((s) => s.setDuration);
   const audioState = useStudioStore((s) => s.audioState);
+  const studioTheme = useStudioStore((s) => s.studioTheme);
+  const cycleStudioTheme = useStudioStore((s) => s.cycleStudioTheme);
+  const startWebcam = useStudioStore((s) => s.startWebcam);
+  const stopWebcam = useStudioStore((s) => s.stopWebcam);
 
   const stageSectionRef = useRef<HTMLElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -87,8 +95,48 @@ export default function CenterStage() {
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(
     null
   );
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const webcamActive = mediaType === 'webcam';
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  // Ctrl/Cmd + wheel zooms; a plain wheel pans. Registered natively so the
+  // browser's page-zoom gesture can be prevented while the pointer is here.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        const factor = event.deltaY < 0 ? 1.08 : 1 / 1.08;
+        const state = useStudioStore.getState();
+        state.setZoom(state.zoom * factor);
+      } else {
+        event.preventDefault();
+        const state = useStudioStore.getState();
+        state.setPan({
+          x: state.pan.x - event.deltaX,
+          y: state.pan.y - event.deltaY,
+        });
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void document.documentElement.requestFullscreen?.();
+    }
+  };
 
   useEffect(() => {
     void detectGpuCapabilities().then((caps) => {
@@ -210,6 +258,8 @@ export default function CenterStage() {
           const state = useStudioStore.getState();
           pipeline.syncStack(state.activeStack, state.activeTier);
           pipeline.updateTone(state.tone);
+          pipeline.updateProcessing(state.processing);
+          pipeline.updatePostProcessing(state.postProcessing);
           pipeline.updateAscii(state.ascii);
           const capped = getCappedDimensions(
             state.dimensions ?? {
@@ -476,6 +526,14 @@ export default function CenterStage() {
     new URLSearchParams(window.location.search).get('testMode') === 'true';
   const hasThreeD = activeStack.some((p) => p.effectId === 'threeD' && p.enabled);
   const aspectRatio = dimensions ? `${dimensions.width} / ${dimensions.height}` : '4 / 3';
+  const enabledPasses = activeStack.filter((p) => p.enabled);
+  const stackLabel =
+    enabledPasses.length === 0
+      ? 'original media'
+      : enabledPasses.length === 1
+        ? getEffectDefinition(enabledPasses[0].effectId)?.label ?? enabledPasses[0].effectId
+        : `${enabledPasses.length} passes`;
+  const engineLabel = gpuEngine === 'webgl2' ? 'WEBGL2' : 'WEBGPU';
 
   return (
     <section
@@ -486,11 +544,58 @@ export default function CenterStage() {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      {/* Grainrad status pill: active look + rendering backend */}
+      <div className="pointer-events-none absolute left-1/2 top-2 z-30 -translate-x-1/2 select-none">
+        <div className="flex items-center gap-2 border border-hairline bg-raised/90 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-dim">
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 rounded-full ${
+              mediaType || hasThreeD
+                ? 'bg-term-green shadow-[0_0_6px_var(--term-green)]'
+                : 'bg-hairline'
+            }`}
+          />
+          <span className="max-w-[46vw] truncate text-highlight">{stackLabel}</span>
+          <span className="border-l border-hairline pl-2 text-[9px] tracking-[0.18em]">
+            {engineLabel}
+          </span>
+        </div>
+      </div>
+
+      {/* Viewport toolbar: theme cycle, webcam, fullscreen */}
+      <div className="absolute right-2 top-2 z-30 flex items-center gap-1">
+        <ToolbarButton
+          label={`Theme: ${studioTheme}`}
+          onClick={cycleStudioTheme}
+        >
+          <Palette size={14} strokeWidth={1.75} aria-hidden />
+        </ToolbarButton>
+        <ToolbarButton
+          label={webcamActive ? 'Stop webcam' : 'Start webcam'}
+          onClick={() => {
+            if (webcamActive) stopWebcam();
+            else void startWebcam();
+          }}
+        >
+          <Webcam size={14} strokeWidth={1.75} aria-hidden />
+        </ToolbarButton>
+        <ToolbarButton
+          label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          onClick={toggleFullscreen}
+        >
+          {isFullscreen ? (
+            <Minimize2 size={14} strokeWidth={1.75} aria-hidden />
+          ) : (
+            <Maximize2 size={14} strokeWidth={1.75} aria-hidden />
+          )}
+        </ToolbarButton>
+      </div>
+
       {/* Actionable error banner */}
       {errorBanner && (
         <div
           role="alert"
-          className="studio-glass absolute top-3 left-1/2 z-30 flex w-[min(92%,480px)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg px-4 py-3 text-control"
+          className="studio-glass absolute top-14 left-1/2 z-30 flex w-[min(92%,480px)] -translate-x-1/2 items-start justify-between gap-3 rounded-lg px-4 py-3 text-control"
         >
           <div className="flex flex-col gap-0.5">
             <span className="font-semibold text-max">{errorBanner.title}</span>
@@ -512,7 +617,7 @@ export default function CenterStage() {
       {!errorBanner && gpuEngine === 'webgl2' && !fallbackNoticeDismissed && (
         <div
           role="status"
-          className="studio-glass absolute top-3 left-1/2 z-20 flex max-w-[min(92%,500px)] -translate-x-1/2 items-center justify-between gap-3 rounded-full px-4 py-1.5 text-[11px] text-default"
+          className="studio-glass absolute top-14 left-1/2 z-20 flex max-w-[min(92%,500px)] -translate-x-1/2 items-center justify-between gap-3 rounded-full px-4 py-1.5 text-[11px] text-default"
         >
           <span>
             WebGPU is unavailable in this browser. Running on WebGL2 fallback.
@@ -531,6 +636,7 @@ export default function CenterStage() {
       <Dropzone dragActive={dragOver} />
 
       <div
+        ref={viewportRef}
         className="absolute inset-0 flex touch-none items-center justify-center p-3 pb-20 md:p-6 md:pb-16"
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -637,7 +743,36 @@ export default function CenterStage() {
         />
       )}
 
+      <div className="pointer-events-none absolute bottom-3 left-3 z-20 hidden select-none flex-col gap-0.5 text-[10px] leading-relaxed text-dim md:flex">
+        <span>Scroll to pan · Ctrl+Scroll to zoom · Alt+Drag to pan</span>
+        <span className="tabular-nums">
+          {dimensions ? `${dimensions.width}×${dimensions.height}` : 'no media'}
+        </span>
+      </div>
+
       <ViewportHUD />
     </section>
+  );
+}
+
+function ToolbarButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="flex h-7 w-7 items-center justify-center border border-hairline bg-raised/90 text-dim transition-colors hover:border-border-strong hover:text-highlight"
+    >
+      {children}
+    </button>
   );
 }
