@@ -19,7 +19,6 @@ import {
 import {
   useStudioStore,
   DEFAULT_AUDIO_STATE,
-  DEFAULT_INITIAL_STACK,
 } from '../store/useStudioStore';
 import AudioPanel from '../components/panels/AudioPanel';
 
@@ -268,8 +267,24 @@ describe('useStudioStore audioState & AudioPanel UI (D-10, D-11, D-13, FX-05)', 
   beforeEach(() => {
     cleanupAudioGraph();
     useStudioStore.setState({
-      activeStack: structuredClone(DEFAULT_INITIAL_STACK),
-      selectedPassId: DEFAULT_INITIAL_STACK[0].instanceId,
+      activeStack: [
+        {
+          instanceId: 'initial-ascii',
+          effectId: 'ascii',
+          enabled: true,
+          intensity: 1.0,
+          blendMode: 'normal',
+          parameters: {
+            cellScale: 10,
+            charSpacing: 1,
+            charAspect: 0.55,
+            contrast: 1.15,
+            colorMode: 'truecolor',
+            rampLength: 10,
+          },
+        },
+      ],
+      selectedPassId: 'initial-ascii',
       audioState: structuredClone(DEFAULT_AUDIO_STATE),
     });
   });

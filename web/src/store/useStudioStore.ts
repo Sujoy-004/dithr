@@ -18,6 +18,10 @@ import type {
 } from '../types/studio';
 import type { QualityTier, GpuCapabilities } from '../engine/capabilities';
 import { getEffectDefinition } from '../engine/registry';
+import {
+  applyCrtProfile,
+  type CrtVhsProfileName,
+} from '../engine/registry/modulate/crtVhs';
 import type { StudioPipeline } from '../engine/Pipeline';
 
 interface Pan {
@@ -60,8 +64,8 @@ interface StudioState extends MediaState {
   setMobileSheetTab: (tab: MobileSheetTab) => void;
 
   // Active effect selection (D-02)
-  effect: EffectMode;
-  setEffect: (effect: EffectMode) => void;
+  effect: EffectMode | null;
+  setEffect: (effect: EffectMode | null) => void;
 
   // Active Effect Stack (D-01, D-02, D-03, D-04, D-20, FX-01)
   activeStack: ActiveEffectPass[];
@@ -69,6 +73,7 @@ interface StudioState extends MediaState {
   setSelectedPassId: (id: string | null) => void;
   addEffect: (effectId: string, initialParams?: Record<string, any>) => void;
   removeEffect: (instanceId: string) => void;
+  clearStack: () => void;
   reorderStack: (fromIndex: number, toIndex: number) => void;
   toggleEffect: (instanceId: string) => void;
   duplicateEffect: (instanceId: string) => void;
@@ -192,21 +197,7 @@ export const DEFAULT_EFFECT_PARAMS: EffectParams = {
   vhsCurvature: 0.0,
 };
 
-export const DEFAULT_INITIAL_STACK: ActiveEffectPass[] = [
-  {
-    instanceId: 'initial-ascii',
-    effectId: 'ascii',
-    enabled: true,
-    intensity: 1.0,
-    blendMode: 'normal',
-    parameters: {
-      cellScale: 12,
-      charSpacing: 0,
-      charAspect: 0.5,
-      rampLength: 10,
-    },
-  },
-];
+export const DEFAULT_INITIAL_STACK: ActiveEffectPass[] = [];
 
 export const DEFAULT_AUDIO_STATE: AudioState = {
   enabled: false,
@@ -244,6 +235,14 @@ export function registerPipeline(pipeline: StudioPipeline | null): void {
 
 export function getActivePipeline(): StudioPipeline | null {
   return activePipeline;
+}
+
+function canonicalizeEffectId(effectId: string): string {
+  return effectId === 'vhs' ? 'crtVhs' : effectId;
+}
+
+function toUiEffectMode(effectId: string): EffectMode {
+  return (effectId === 'crtVhs' ? 'vhs' : effectId) as EffectMode;
 }
 
 function generateInstanceId(effectId: string): string {
@@ -356,18 +355,23 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   mobileSheetTab: 'closed',
   setMobileSheetTab: (mobileSheetTab) => set({ mobileSheetTab }),
 
-  effect: 'ascii',
+  effect: null,
   setEffect: (effect) => {
-    get().setSingleEffectFastPath(effect);
+    if (effect === null) {
+      get().clearStack();
+    } else {
+      get().setSingleEffectFastPath(effect);
+    }
   },
 
   activeStack: DEFAULT_INITIAL_STACK,
-  selectedPassId: 'initial-ascii',
+  selectedPassId: null,
 
   setSelectedPassId: (selectedPassId) => set({ selectedPassId }),
 
   addEffect: (effectId, initialParams) => {
-    const def = getEffectDefinition(effectId);
+    const canonicalId = canonicalizeEffectId(effectId);
+    const def = getEffectDefinition(canonicalId);
     const params: Record<string, any> = {};
     if (def) {
       for (const [k, s] of Object.entries(def.parameters)) {
@@ -378,8 +382,8 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       Object.assign(params, initialParams);
     }
     const newPass: ActiveEffectPass = {
-      instanceId: generateInstanceId(effectId),
-      effectId,
+      instanceId: generateInstanceId(canonicalId),
+      effectId: canonicalId,
       enabled: true,
       intensity: 1.0,
       blendMode: 'normal',
@@ -390,6 +394,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     set({
       activeStack: next,
       selectedPassId: newPass.instanceId,
+      effect: get().effect ?? toUiEffectMode(canonicalId),
     });
   },
 
@@ -414,10 +419,20 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     set({
       activeStack: next,
       selectedPassId: nextSelectedId,
+      effect: next.length === 0 ? null : state.effect,
       audioState: {
         ...state.audioState,
         mappings: nextMappings,
       },
+    });
+  },
+
+  clearStack: () => {
+    activePipeline?.syncStack([], get().activeTier);
+    set({
+      activeStack: [],
+      selectedPassId: null,
+      effect: null,
     });
   },
 
@@ -482,8 +497,20 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   },
 
   updatePassParam: (instanceId, paramKey, value) => {
+    let bundledUpdates: Record<string, any> | null = null;
     const next = get().activeStack.map((p) => {
       if (p.instanceId !== instanceId) return p;
+      if (p.effectId === 'crtVhs' && paramKey === 'profile') {
+        bundledUpdates = applyCrtProfile(value as CrtVhsProfileName);
+        return {
+          ...p,
+          parameters: {
+            ...p.parameters,
+            ...bundledUpdates,
+            [paramKey]: value,
+          },
+        };
+      }
       return {
         ...p,
         parameters: {
@@ -492,22 +519,29 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         },
       };
     });
+
+    if (bundledUpdates) {
+      for (const [k, v] of Object.entries(bundledUpdates)) {
+        activePipeline?.updateUniform(instanceId, k, v);
+      }
+    }
     activePipeline?.updateUniform(instanceId, paramKey, value);
     set({ activeStack: next });
   },
 
   setSingleEffectFastPath: (effectId) => {
-    const def = getEffectDefinition(effectId);
+    const canonicalId = canonicalizeEffectId(effectId);
+    const def = getEffectDefinition(canonicalId);
     const params: Record<string, any> = {};
     if (def) {
       for (const [k, s] of Object.entries(def.parameters)) {
         params[k] = s.default;
       }
     }
-    const instanceId = generateInstanceId(effectId);
+    const instanceId = generateInstanceId(canonicalId);
     const pass: ActiveEffectPass = {
       instanceId,
-      effectId,
+      effectId: canonicalId,
       enabled: true,
       intensity: 1.0,
       blendMode: 'normal',
@@ -517,7 +551,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     set({
       activeStack: [pass],
       selectedPassId: instanceId,
-      effect: effectId as EffectMode,
+      effect: toUiEffectMode(canonicalId),
     });
   },
 
@@ -527,16 +561,30 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       get().updatePassParam(keyOrInstanceId, valueOrParamKey, maybeValue);
     } else {
       set((s) => ({ effectParams: { ...s.effectParams, [keyOrInstanceId]: valueOrParamKey } }));
-      activePipeline?.updateUniform(`legacy-${get().effect}`, keyOrInstanceId, valueOrParamKey);
+      const selected = get().selectedPassId;
+      if (selected) {
+        activePipeline?.updateUniform(selected, keyOrInstanceId, valueOrParamKey);
+      }
     }
   },
 
   tone: DEFAULT_TONE,
-  updateTone: (patch) => set((s) => ({ tone: { ...s.tone, ...patch } })),
-  resetTone: () => set({ tone: DEFAULT_TONE }),
+  updateTone: (patch) => {
+    const nextTone = { ...get().tone, ...patch };
+    activePipeline?.updateTone(nextTone);
+    set({ tone: nextTone });
+  },
+  resetTone: () => {
+    activePipeline?.updateTone(DEFAULT_TONE);
+    set({ tone: DEFAULT_TONE });
+  },
 
   ascii: DEFAULT_ASCII,
-  updateAscii: (patch) => set((s) => ({ ascii: { ...s.ascii, ...patch } })),
+  updateAscii: (patch) => {
+    const nextAscii = { ...get().ascii, ...patch };
+    activePipeline?.updateAscii(nextAscii);
+    set({ ascii: nextAscii });
+  },
 
   theme: 'dark',
   toggleTheme: () => set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
@@ -1003,4 +1051,5 @@ function stopWebcamInternal(
 
 if (typeof window !== 'undefined') {
   (window as any).useStudioStore = useStudioStore;
+  (window as any).getActivePipeline = getActivePipeline;
 }

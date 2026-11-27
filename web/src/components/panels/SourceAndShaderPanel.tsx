@@ -11,6 +11,8 @@ import {
   Copy,
   Trash2,
   Plus,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import { useStudioStore } from '../../store/useStudioStore';
 import type { EffectMode, MediaType } from '../../types/studio';
@@ -62,6 +64,7 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
   const setSelectedPassId = useStudioStore((s) => s.setSelectedPassId);
   const addEffect = useStudioStore((s) => s.addEffect);
   const removeEffect = useStudioStore((s) => s.removeEffect);
+  const clearStack = useStudioStore((s) => s.clearStack);
   const reorderStack = useStudioStore((s) => s.reorderStack);
   const toggleEffect = useStudioStore((s) => s.toggleEffect);
   const duplicateEffect = useStudioStore((s) => s.duplicateEffect);
@@ -206,6 +209,9 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
   const grouped = getGroupedEffects();
   const showMedia = section === 'all' || section === 'media';
   const showShaders = section === 'all' || section === 'shaders';
+  const hasGlyphEffect = activeStack.some(
+    (p) => p.effectId === 'ascii' || p.effectId === 'matrix' || p.effectId === 'threeD'
+  );
 
   return (
     <div className="flex flex-col">
@@ -294,7 +300,7 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
           <div className="px-4 pb-3">
             {activeStack.length === 0 ? (
               <div className="border border-dashed border-hairline p-3 text-center text-control text-dim">
-                Stack is empty. Add an effect below.
+                Original media (no active shaders)
               </div>
             ) : (
               <ul
@@ -313,7 +319,7 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
                     <li
                       key={pass.instanceId}
                       role="listitem"
-                      className={`flex h-9 items-center gap-1 border px-1.5 text-control transition-colors ${
+                      className={`flex h-9 items-center gap-0.5 border px-1 text-control transition-colors ${
                         isDropTarget
                           ? 'border-highlight bg-raised'
                           : isGrabbed
@@ -338,13 +344,17 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
                         onKeyDown={(e) => handleStackKeyDown(e, index)}
                         className="touch-none cursor-grab p-1 text-dim hover:text-highlight active:cursor-grabbing"
                       >
-                        <GripVertical size={13} strokeWidth={1.75} aria-hidden />
+                        <GripVertical size={12} strokeWidth={1.75} aria-hidden />
                       </button>
+
+                      <span className="w-3.5 shrink-0 text-center text-[10px] tabular-nums text-dim">
+                        {index + 1}
+                      </span>
 
                       <button
                         type="button"
                         onClick={() => setSelectedPassId(pass.instanceId)}
-                        className="flex flex-1 items-center truncate text-left font-medium"
+                        className="flex min-w-0 flex-1 items-center truncate text-left font-medium"
                       >
                         <span
                           className={`truncate ${
@@ -355,35 +365,55 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
                         </span>
                       </button>
 
-                      <div className="flex shrink-0 items-center gap-0.5">
+                      <div className="flex shrink-0 items-center">
+                        <button
+                          type="button"
+                          aria-label="Move effect up"
+                          title="Move up"
+                          disabled={index === 0}
+                          onClick={() => reorderStack(index, index - 1)}
+                          className="p-1 text-dim hover:text-max disabled:opacity-30 disabled:pointer-events-none"
+                        >
+                          <ChevronUp size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Move effect down"
+                          title="Move down"
+                          disabled={index === activeStack.length - 1}
+                          onClick={() => reorderStack(index, index + 1)}
+                          className="p-1 text-dim hover:text-max disabled:opacity-30 disabled:pointer-events-none"
+                        >
+                          <ChevronDown size={12} />
+                        </button>
                         <button
                           type="button"
                           aria-label="Toggle effect"
                           title={pass.enabled ? 'Disable pass' : 'Enable pass'}
                           onClick={() => toggleEffect(pass.instanceId)}
-                          className={`p-1.5 hover:text-max ${
+                          className={`p-1 hover:text-max ${
                             pass.enabled ? 'text-highlight' : 'text-dim'
                           }`}
                         >
-                          {pass.enabled ? <Eye size={13} /> : <EyeOff size={13} />}
+                          {pass.enabled ? <Eye size={12} /> : <EyeOff size={12} />}
                         </button>
                         <button
                           type="button"
                           aria-label="Duplicate effect"
                           title="Duplicate pass"
                           onClick={() => duplicateEffect(pass.instanceId)}
-                          className="p-1.5 text-dim hover:text-max"
+                          className="p-1 text-dim hover:text-max"
                         >
-                          <Copy size={12} />
+                          <Copy size={11} />
                         </button>
                         <button
                           type="button"
                           aria-label="Delete effect"
                           title="Delete pass"
                           onClick={() => removeEffect(pass.instanceId)}
-                          className="p-1.5 text-dim hover:text-max"
+                          className="p-1 text-dim hover:text-max"
                         >
-                          <Trash2 size={12} />
+                          <Trash2 size={11} />
                         </button>
                       </div>
                     </li>
@@ -392,18 +422,29 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
               </ul>
             )}
 
-            <div className="mt-2">
+            <div className="mt-2 flex items-center gap-1.5">
               <button
                 type="button"
                 aria-expanded={isPaletteOpen}
                 onClick={() => setIsPaletteOpen((prev) => !prev)}
-                className="flex h-8 w-full items-center justify-center gap-1.5 border border-dashed border-hairline bg-raised px-2 text-control text-default hover:border-border-strong hover:text-highlight transition-colors"
+                className="flex h-8 flex-1 items-center justify-center gap-1.5 border border-dashed border-hairline bg-raised px-2 text-control text-default hover:border-border-strong hover:text-highlight transition-colors"
               >
                 <Plus size={12} strokeWidth={2} aria-hidden />
                 <span>Add effect pass</span>
               </button>
+              {activeStack.length > 0 && (
+                <button
+                  type="button"
+                  aria-label="Clear all shaders"
+                  onClick={clearStack}
+                  className="flex h-8 items-center justify-center border border-hairline bg-raised px-2.5 text-control text-dim hover:border-border-strong hover:text-highlight transition-colors"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
 
-              {isPaletteOpen && (
+            {isPaletteOpen && (
                 <div className="studio-glass mt-2 rounded p-2.5 text-control">
                   <div className="mb-1.5 text-[11px] font-semibold text-dim">Stylize</div>
                   <div className="mb-2.5 grid grid-cols-2 gap-1">
@@ -439,7 +480,6 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
                   </div>
                 </div>
               )}
-            </div>
           </div>
 
           <SectionHeader title="Shaders" state={`${EFFECT_LIST.length}`} />
@@ -449,9 +489,12 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
             aria-label="Shader list"
           >
             {EFFECT_LIST.map(({ mode, label }, index) => {
+              const canonicalMode = mode === 'vhs' ? 'crtVhs' : mode;
               const isSingleActive =
-                activeStack.length === 1 && activeStack[0].effectId === mode;
-              const isPresent = activeStack.some((p) => p.effectId === mode && p.enabled);
+                activeStack.length === 1 && activeStack[0].effectId === canonicalMode;
+              const isPresent = activeStack.some(
+                (p) => p.effectId === canonicalMode && p.enabled
+              );
 
               return (
                 <div
@@ -471,7 +514,7 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
                     }}
                     type="button"
                     aria-pressed={isSingleActive}
-                    title={`Set single effect: ${label} (fast path)`}
+                    title={`Select ${label}`}
                     onClick={() => setSingleEffectFastPath(mode)}
                     onKeyDown={(e) => handleShaderKeyDown(e, index)}
                     className="flex h-9 flex-1 items-center justify-between px-4 text-control font-medium text-left"
@@ -491,40 +534,44 @@ export default function SourceAndShaderPanel({ section = 'all' }: SourceAndShade
                       e.stopPropagation();
                       addEffect(mode);
                     }}
-                    className={`mr-2 flex h-7 w-7 items-center justify-center border ${
+                    className={`mr-2 flex h-7 items-center gap-0.5 border px-1.5 text-[11px] font-medium ${
                       isSingleActive
                         ? 'border-base/30 text-base hover:bg-base/10'
                         : 'border-hairline text-dim hover:border-border-strong hover:text-highlight'
                     }`}
                   >
-                    <Plus size={12} aria-hidden />
+                    <span>+ Stack</span>
                   </button>
                 </div>
               );
             })}
           </div>
 
-          <SectionHeader title="ASCII ramp presets" state={`${PRESETS.length}`} />
-          <div className="grid grid-cols-2 gap-1.5 px-4 pb-4">
-            {PRESETS.map(({ preset, label }) => {
-              const active = ascii.rampPreset === preset && ascii.customChars === '';
-              return (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => updateAscii({ rampPreset: preset, customChars: '' })}
-                  aria-pressed={active}
-                  className={`flex h-8 items-center justify-center border px-2 text-control transition-colors ${
-                    active
-                      ? 'border-highlight bg-active font-semibold text-max'
-                      : 'border-hairline bg-raised text-default hover:border-border-strong hover:text-highlight'
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
+          {hasGlyphEffect && (
+            <>
+              <SectionHeader title="ASCII ramp presets" state={`${PRESETS.length}`} />
+              <div className="grid grid-cols-2 gap-1.5 px-4 pb-4">
+                {PRESETS.map(({ preset, label }) => {
+                  const active = ascii.rampPreset === preset && ascii.customChars === '';
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => updateAscii({ rampPreset: preset, customChars: '' })}
+                      aria-pressed={active}
+                      className={`flex h-8 items-center justify-center border px-2 text-control transition-colors ${
+                        active
+                          ? 'border-highlight bg-active font-semibold text-max'
+                          : 'border-hairline bg-raised text-default hover:border-border-strong hover:text-highlight'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </>
       )}
     </div>

@@ -4,13 +4,46 @@ import * as THREE from 'three/webgpu';
 import { X } from 'lucide-react';
 import { useStudioStore, registerVideoElement, registerPipeline } from '../../store/useStudioStore';
 import { StudioPipeline } from '../../engine/Pipeline';
-import { detectGpuCapabilities, TIER_CONFIGS } from '../../engine/capabilities';
+import { detectGpuCapabilities, TIER_CONFIGS, type QualityTier } from '../../engine/capabilities';
 import { AudioReactivityEngine } from '../../engine/audio/AudioReactivityEngine';
 import { getSharedAnalyserNode } from '../../export/audioGraph';
 import { getEffectDefinition } from '../../engine/registry';
+import type { Dimensions } from '../../types/studio';
 import ViewportHUD from '../canvas/ViewportHUD';
 import Dropzone from '../canvas/Dropzone';
 import MaskHandles from '../canvas/MaskHandles';
+
+const ANIMATED_EFFECTS = new Set([
+  'matrix',
+  'waveLines',
+  'noise',
+  'grain',
+  'crtVhs',
+  'vhs',
+  'threeD',
+  'pixelSort',
+]);
+
+function getCappedDimensions(
+  dims: Dimensions | null | undefined,
+  tier: QualityTier
+): Dimensions {
+  const maxDim = TIER_CONFIGS[tier]?.maxDimension || 1080;
+  let width = Math.max(1, Math.round(dims?.width || 800));
+  let height = Math.max(1, Math.round(dims?.height || 600));
+
+  if (width > maxDim || height > maxDim) {
+    if (width >= height) {
+      height = Math.max(1, Math.round((height * maxDim) / width));
+      width = maxDim;
+    } else {
+      width = Math.max(1, Math.round((width * maxDim) / height));
+      height = maxDim;
+    }
+  }
+
+  return { width, height };
+}
 
 /**
  * Center Stage: responsive Three.js WebGPU / WebGL2 canvas viewport,
@@ -48,6 +81,7 @@ export default function CenterStage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const animIdRef = useRef<number>(0);
   const isPausedRef = useRef<boolean>(false);
+  const syncRenderLoopRef = useRef<(() => void) | null>(null);
   const audioEngineRef = useRef<AudioReactivityEngine>(new AudioReactivityEngine());
 
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(
@@ -143,13 +177,17 @@ export default function CenterStage() {
       const s = useStudioStore.getState();
       if (isTestMode || s.mediaType === 'video' || s.mediaType === 'webcam') return true;
       if (s.audioState.enabled && s.audioState.status === 'live') return true;
-      if (s.activeStack.some((p) => p.enabled && p.effectId === 'threeD')) return true;
-      return s.mediaType !== null;
+      if (s.activeStack.some((p) => p.enabled && ANIMATED_EFFECTS.has(p.effectId))) return true;
+      return false;
     };
 
     const startLoopIfNeeded = () => {
       if (isPausedRef.current || disposed) return;
       if (!shouldRunContinuousLoop()) {
+        if (animIdRef.current) {
+          cancelAnimationFrame(animIdRef.current);
+          animIdRef.current = 0;
+        }
         pipeline.render(frozenTime !== null ? frozenTime : 0);
         return;
       }
@@ -158,6 +196,7 @@ export default function CenterStage() {
         animIdRef.current = requestAnimationFrame(loop);
       }
     };
+    syncRenderLoopRef.current = startLoopIfNeeded;
 
     const bootPipeline = () => {
       if (disposed) return;
@@ -172,7 +211,14 @@ export default function CenterStage() {
           pipeline.syncStack(state.activeStack, state.activeTier);
           pipeline.updateTone(state.tone);
           pipeline.updateAscii(state.ascii);
-          pipeline.resize(canvas.clientWidth || 800, canvas.clientHeight || 600);
+          const capped = getCappedDimensions(
+            state.dimensions ?? {
+              width: canvas.clientWidth || 800,
+              height: canvas.clientHeight || 600,
+            },
+            state.activeTier
+          );
+          pipeline.resize(capped.width, capped.height);
           startLoopIfNeeded();
         })
         .catch((err) => {
@@ -227,9 +273,7 @@ export default function CenterStage() {
         isPausedRef.current = false;
         setRenderStatus('active');
         lastFrameTime = performance.now();
-        if (!animIdRef.current && pipelineRef.current) {
-          animIdRef.current = requestAnimationFrame(loop);
-        }
+        startLoopIfNeeded();
       }
     };
 
@@ -246,9 +290,7 @@ export default function CenterStage() {
         isPausedRef.current = false;
         setRenderStatus('active');
         lastFrameTime = performance.now();
-        if (!animIdRef.current && pipelineRef.current) {
-          animIdRef.current = requestAnimationFrame(loop);
-        }
+        startLoopIfNeeded();
       }
     };
 
@@ -277,6 +319,7 @@ export default function CenterStage() {
         );
       }
       registerPipeline(null);
+      syncRenderLoopRef.current = null;
       pipeline.dispose();
       pipelineRef.current = null;
     };
@@ -285,18 +328,21 @@ export default function CenterStage() {
   useEffect(() => {
     if (pipelineRef.current) {
       pipelineRef.current.syncStack(activeStack, activeTier);
+      syncRenderLoopRef.current?.();
     }
   }, [activeStack, activeTier]);
 
   useEffect(() => {
     if (pipelineRef.current) {
       pipelineRef.current.updateTone(tone);
+      syncRenderLoopRef.current?.();
     }
   }, [tone]);
 
   useEffect(() => {
     if (pipelineRef.current) {
       pipelineRef.current.updateAscii(ascii);
+      syncRenderLoopRef.current?.();
     }
   }, [ascii]);
 
@@ -321,21 +367,9 @@ export default function CenterStage() {
     const pipeline = pipelineRef.current;
     if (!pipeline) return;
 
-    const maxDim = TIER_CONFIGS[activeTier]?.maxDimension || 1080;
-    let targetW = dimensions?.width || 800;
-    let targetH = dimensions?.height || 600;
-
-    if (targetW > maxDim || targetH > maxDim) {
-      if (targetW >= targetH) {
-        targetH = Math.round((targetH * maxDim) / targetW);
-        targetW = maxDim;
-      } else {
-        targetW = Math.round((targetW * maxDim) / targetH);
-        targetH = maxDim;
-      }
-    }
-
-    pipeline.resize(targetW, targetH);
+    const capped = getCappedDimensions(dimensions, activeTier);
+    pipeline.resize(capped.width, capped.height);
+    syncRenderLoopRef.current?.();
   }, [activeTier, dimensions]);
 
   useEffect(() => {
@@ -350,18 +384,28 @@ export default function CenterStage() {
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.needsUpdate = true;
         pipeline.setSourceTexture(tex);
-        pipeline.resize(dimensions.width, dimensions.height);
+        const capped = getCappedDimensions(
+          dimensions,
+          useStudioStore.getState().activeTier
+        );
+        pipeline.resize(capped.width, capped.height);
+        syncRenderLoopRef.current?.();
       };
       img.src = mediaUrl;
     } else if ((mediaType === 'video' || webcamActive) && videoRef.current) {
       const tex = new THREE.VideoTexture(videoRef.current);
       tex.colorSpace = THREE.SRGBColorSpace;
       pipeline.setSourceTexture(tex);
-      const w = dimensions?.width || videoRef.current.videoWidth || 800;
-      const h = dimensions?.height || videoRef.current.videoHeight || 600;
-      pipeline.resize(w, h);
+      const rawDims = {
+        width: dimensions?.width || videoRef.current.videoWidth || 800,
+        height: dimensions?.height || videoRef.current.videoHeight || 600,
+      };
+      const capped = getCappedDimensions(rawDims, useStudioStore.getState().activeTier);
+      pipeline.resize(capped.width, capped.height);
+      syncRenderLoopRef.current?.();
     } else if (!mediaType) {
       pipeline.clearSource();
+      syncRenderLoopRef.current?.();
     }
   }, [mediaType, mediaUrl, dimensions, webcamActive]);
 
@@ -544,9 +588,14 @@ export default function CenterStage() {
           onLoadedMetadata={(e) => {
             const el = e.currentTarget;
             if (el.videoWidth && el.videoHeight) {
-              setDimensions({ width: el.videoWidth, height: el.videoHeight });
+              const rawDims = { width: el.videoWidth, height: el.videoHeight };
+              setDimensions(rawDims);
               if (pipelineRef.current) {
-                pipelineRef.current.resize(el.videoWidth, el.videoHeight);
+                const capped = getCappedDimensions(
+                  rawDims,
+                  useStudioStore.getState().activeTier
+                );
+                pipelineRef.current.resize(capped.width, capped.height);
               }
             }
             if (el.duration && !Number.isNaN(el.duration)) {
@@ -558,13 +607,19 @@ export default function CenterStage() {
             if (el.videoWidth && el.videoHeight) {
               const cur = useStudioStore.getState().dimensions;
               if (!cur || cur.width !== el.videoWidth || cur.height !== el.videoHeight) {
-                setDimensions({ width: el.videoWidth, height: el.videoHeight });
+                const rawDims = { width: el.videoWidth, height: el.videoHeight };
+                setDimensions(rawDims);
                 if (pipelineRef.current) {
-                  pipelineRef.current.resize(el.videoWidth, el.videoHeight);
+                  const capped = getCappedDimensions(
+                    rawDims,
+                    useStudioStore.getState().activeTier
+                  );
+                  pipelineRef.current.resize(capped.width, capped.height);
                 }
               }
             }
             setIsPlaying(true);
+            syncRenderLoopRef.current?.();
           }}
           onTimeUpdate={(e) => {
             setPlaybackTime(e.currentTarget.currentTime || 0);

@@ -32,7 +32,7 @@ export default function EffectInspector({ onParamChange }: EffectInspectorProps)
       <div className="flex flex-col items-center justify-center py-6 text-center text-control text-dim">
         <Sliders size={18} className="mb-2 opacity-50" aria-hidden />
         <p className="max-w-[200px]">
-          Select an effect from the shader rail or stack to adjust parameters.
+          Select any of the 16 shaders or + Stack on the left rail to stylize and adjust parameters.
         </p>
       </div>
     );

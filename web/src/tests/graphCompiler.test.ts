@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { vec4 } from 'three/tsl';
+import { texture, uv, vec4 } from 'three/tsl';
 import { PassPool } from '../engine/graph/PassPool';
 import {
   computeTopologyHash,
@@ -335,6 +335,106 @@ describe('GraphCompiler: Pass Fusion & Topology Hashing (D-03, D-06, D-21, D-22)
       expect(compiled.stageDescriptors[1].inputTextureNode).toBeDefined();
 
       compiled.dispose();
+    });
+
+    it('compiles empty stack as direct linear passthrough without double color-space wrapping', () => {
+      const sourceTex = new THREE.Texture();
+      const sourceNode = texture(sourceTex);
+      const stages = planExecutionStages([]);
+      expect(stages).toEqual([]);
+
+      const compiled = compileGraph(sourceNode, stages);
+      expect(compiled.topologyHash).toBe('__empty__');
+      expect(compiled.stages).toHaveLength(1);
+      expect(compiled.intermediateTargetCount).toBe(0);
+      expect(compiled.stageDescriptors[0].colorNode).toBe(sourceNode);
+
+      compiled.dispose();
+      sourceTex.dispose();
+    });
+
+    it('wires env.sampleAt for fused 1-stage spatial pass and splits multi-stage FBO stacks with HalfFloatType', () => {
+      const sourceTex = new THREE.Texture();
+      const sourceNode = texture(sourceTex);
+      const sampleSpy = vi.spyOn(sourceNode, 'sample');
+
+      // 1-stage fused stack with spatial blockify after pointwise tone + dither
+      const fusedStack: ActiveEffectPass[] = [
+        createPass('tone', 't-1'),
+        createPass('dither', 'd-1', { matrixType: 'bayer8' }),
+        createPass('blockify', 'b-1', { blockSize: 8 }),
+        createPass('threshold', 'th-1'),
+      ];
+      const fusedStages = planExecutionStages(fusedStack);
+      expect(fusedStages).toHaveLength(1);
+
+      const uniformsMap = new Map<string, any>();
+      const fusedCompiled = compileGraph(sourceNode, fusedStages, uniformsMap);
+      expect(fusedCompiled.stages).toHaveLength(1);
+      expect(fusedCompiled.intermediateTargetCount).toBe(0);
+      expect(uniformsMap.get('d-1:matrixType')?.value).toBe(1); // 'bayer8' index
+      fusedCompiled.dispose();
+
+      // Verify GraphCompiler wires env.sampleAt to sourceNode.sample / inputTextureNode.sample
+      let stage0SampleAt: ((c: any) => any) | undefined;
+      let stage1SampleAt: ((c: any) => any) | undefined;
+      const spyRegistry = new EffectRegistry();
+      spyRegistry.register({
+        id: 'spySpatial',
+        label: 'Spy Spatial',
+        category: 'stylize',
+        requiresPass: false,
+        spatial: true,
+        costWeight: 1,
+        parameters: {},
+        buildNode: (input, _u, env) => {
+          stage0SampleAt = env?.sampleAt;
+          return input;
+        },
+      });
+      spyRegistry.register({
+        id: 'spyPass',
+        label: 'Spy Pass',
+        category: 'modulate',
+        requiresPass: true,
+        costWeight: 2,
+        parameters: {},
+        buildNode: (input, _u, env) => {
+          stage1SampleAt = env?.sampleAt;
+          return input;
+        },
+      });
+      const spyStack = [createPass('spySpatial', 's0'), createPass('spyPass', 's1')];
+      const spyStages = planExecutionStages(spyStack, spyRegistry);
+      const spyCompiled = compileGraph(sourceNode, spyStages, new Map(), undefined, spyRegistry);
+      expect(typeof stage0SampleAt).toBe('function');
+      expect(typeof stage1SampleAt).toBe('function');
+      stage0SampleAt!(uv());
+      expect(sampleSpy).toHaveBeenCalled();
+      spyCompiled.dispose();
+
+      // Multi-stage splits: dither -> crtVhs, ascii -> crtVhs, halftone -> blockify
+      for (const pair of [
+        [createPass('dither', 'p1'), createPass('crtVhs', 'p2')],
+        [createPass('ascii', 'p1'), createPass('crtVhs', 'p2')],
+        [createPass('halftone', 'p1'), createPass('blockify', 'p2')],
+      ]) {
+        const pairStages = planExecutionStages(pair);
+        expect(pairStages).toHaveLength(2);
+        expect(pairStages[0].requiresTarget).toBe(true);
+        expect(pairStages[1].requiresTarget).toBe(false);
+
+        const pairCompiled = compileGraph(sourceNode, pairStages);
+        expect(pairCompiled.intermediateTargetCount).toBe(1);
+        expect(pairCompiled.stageDescriptors[0].targetDescriptor).toEqual({
+          format: THREE.RGBAFormat,
+          type: THREE.HalfFloatType,
+        });
+        expect(pairCompiled.stageDescriptors[1].inputTextureNode).toBeDefined();
+        pairCompiled.dispose();
+      }
+
+      sourceTex.dispose();
     });
   });
 });

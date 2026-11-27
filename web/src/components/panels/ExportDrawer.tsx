@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useStudioStore } from '../../store/useStudioStore';
+import { getActivePipeline, useStudioStore } from '../../store/useStudioStore';
 import { TIER_CONFIGS } from '../../engine/capabilities';
 import { exportRasterImage } from '../../export/imageExport';
 import { exportAsciiText } from '../../export/textExport';
@@ -75,6 +75,7 @@ export default function ExportDrawer() {
     setBusy(true);
     setProgressMsg(`Exporting ${format.toUpperCase()}...`);
     try {
+      getActivePipeline()?.render(useStudioStore.getState().playbackTime || 0);
       await exportRasterImage(canvas, format);
       showToast(`Exported ${format.toUpperCase()}`);
     } catch (err) {

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { vec4, uniform, vec2 } from 'three/tsl';
 import {
   rec601Luminance,
+  rec601PerceptualLuminance,
   rec709Luminance,
   rec601LuminanceCpu,
   rec709LuminanceCpu,
@@ -72,6 +73,10 @@ describe('Tracer Pipeline: Color Science & Registry Slice (D-01, D-05, D-06, D-2
       const standardNode = getLuminanceNode(input, 'rec601');
       expect(standardNode).toBeDefined();
       expect(standardNode.isNode).toBe(true);
+
+      const perceptualNode = rec601PerceptualLuminance(input);
+      expect(perceptualNode).toBeDefined();
+      expect(perceptualNode.isNode).toBe(true);
     });
   });
 
@@ -154,6 +159,9 @@ describe('Tracer Pipeline: Color Science & Registry Slice (D-01, D-05, D-06, D-2
         expect(modulateIds).toContain(id);
         expect(getEffectDefinition(id)).toBeDefined();
       }
+
+      // 'vhs' UI alias resolves directly to crtVhsEffect
+      expect(getEffectDefinition('vhs')?.id).toBe('crtVhs');
     });
 
     it('verifies every registered effect has valid parameter schema, costWeight, and buildNode', () => {
