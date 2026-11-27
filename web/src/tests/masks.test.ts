@@ -29,7 +29,7 @@ describe('RGB Channel Separation (Task 1: D-08, FX-03)', () => {
     const params = rgbSplitEffect.parameters;
     expect(params.masterAmount).toMatchObject({
       type: 'float',
-      default: 0.0,
+      default: 4.0,
       min: 0.0,
       max: 50.0,
       unit: 'px',

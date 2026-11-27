@@ -1,26 +1,26 @@
 import {
   Fn,
   uv,
+  vec2,
   vec3,
   vec4,
-  fract,
-  sin,
+  floor,
+  abs,
   clamp,
   float,
   mix,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
-
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+import {
+  hash12Node,
+  hash22Node,
+  rec601PerceptualLuminance,
+} from '../../color/luminance';
+import { toNode } from '../tslHelpers';
 
 /**
  * Film Grain modulation effect definition (D-01, D-20, D-27).
- * Modulates pixel colors with fine-grained film emulsion grain using injected time and seed.
+ * Pixel-snapped Dave Hoskins Hash-without-Sine emulsion grain with midtone weighting.
  */
 export const grainEffect: EffectDefinition = {
   id: 'grain',
@@ -55,27 +55,31 @@ export const grainEffect: EffectDefinition = {
     const speed = toNode(uniforms.speed, 1.0);
     const time = env?.time ?? uniforms.time ?? float(0.0);
     const seed = env?.seed ?? uniforms.seed ?? float(43.123);
+    const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
-      const t = time.mul(speed);
+      const safeRes = resolution.max(vec2(1.0, 1.0));
+      const pxCoord = floor(st.mul(safeRes));
+      const tStep = floor(time.mul(speed).mul(24.0));
+      const seedVec = vec2(seed.mul(1.13).add(tStep.mul(0.89)), seed.mul(2.41).sub(tStep.mul(1.37)));
 
-      // Seeded high-frequency noise
-      const nCoordR = st.x.mul(seed).add(st.y.mul(78.233)).add(t.mul(5.0));
-      const nCoordG = st.x.mul(seed.add(11.0)).add(st.y.mul(93.112)).add(t.mul(5.0));
-      const nCoordB = st.x.mul(seed.add(23.0)).add(st.y.mul(61.456)).add(t.mul(5.0));
-
-      const noiseR = fract(sin(nCoordR).mul(43758.5453)).sub(0.5);
-      const noiseG = fract(sin(nCoordG).mul(43758.5453)).sub(0.5);
-      const noiseB = fract(sin(nCoordB).mul(43758.5453)).sub(0.5);
-
-      const colorNoise = (vec3 as any)(noiseR, noiseG, noiseB).mul(amount);
-      const monoNoise = vec3(noiseR as any).mul(amount);
-      const finalNoise = (mix as any)(colorNoise, monoNoise, monochrome);
+      const h = hash22Node(pxCoord.add(seedVec));
+      const nR = h.x.sub(0.5);
+      const nG = h.y.sub(0.5);
+      const nB = hash12Node(pxCoord.add(seedVec).add(vec2(37.1, 17.7))).sub(0.5);
 
       const baseCol = inputNode;
-      const finalRGB = clamp(baseCol.rgb.add(finalNoise), 0.0, 1.0);
+      const lum = rec601PerceptualLuminance(baseCol.rgb);
+      const midtoneWeight = float(0.35).add(
+        float(0.65).mul(float(1.0).sub(abs(lum.mul(2.0).sub(1.0))))
+      );
 
+      const colorNoise = vec3(nR, nG, nB).mul(amount).mul(midtoneWeight).mul(0.55);
+      const monoNoise = vec3(nR).mul(amount).mul(midtoneWeight).mul(0.55);
+      const finalNoise = mix(colorNoise, monoNoise, monochrome);
+
+      const finalRGB = clamp(baseCol.rgb.add(finalNoise), 0.0, 1.0);
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },

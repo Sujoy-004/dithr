@@ -8,20 +8,13 @@ import {
   float,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
-import { rec601Luminance } from '../../color/luminance';
-
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+import { linearTosRGBChannel, sRGBToLinearChannel } from '../../color/colorSpace';
+import { toNode } from '../tslHelpers';
 
 /**
  * Tone Adjustment effect definition (D-01, D-05, D-20).
- * Pointwise color grading in linear light:
- * Brightness offset, contrast scaling, saturation via Rec. 601 luminance,
- * Rodrigues hue rotation, gamma shaping, and inversion.
+ * Operates in perceptual sRGB space for intuitive brightness/contrast/saturation/hue/gamma
+ * curves, then converts cleanly back to Linear working space.
  */
 export const toneEffect: EffectDefinition = {
   id: 'tone',
@@ -86,20 +79,25 @@ export const toneEffect: EffectDefinition = {
 
     return Fn(() => {
       const col = inputNode;
-      let rgb = col.rgb;
 
-      // 1. Brightness: offset is brightness - 1.0
+      // Convert Linear working light -> perceptual sRGB for grading
+      let rgb: any = vec3(
+        linearTosRGBChannel(col.r),
+        linearTosRGBChannel(col.g),
+        linearTosRGBChannel(col.b)
+      );
+
+      // 1. Brightness offset
       rgb = rgb.add(brightness.sub(1.0));
 
-      // 2. Contrast: (rgb - 0.5) * contrast + 0.5
+      // 2. Contrast around perceptual 0.5 mid-gray
       rgb = rgb.sub(0.5).mul(contrast).add(0.5);
 
-      // 3. Saturation: blend with Rec. 601 perceived luminance (D-05)
-      const lum = rec601Luminance(rgb);
-      const gray = vec3(lum);
-      rgb = mix(gray, rgb, saturation);
+      // 3. Saturation: blend with Rec. 601 perceptual luminance
+      const lum = rgb.r.mul(0.299).add(rgb.g.mul(0.587)).add(rgb.b.mul(0.114));
+      rgb = mix(vec3(lum), rgb, saturation);
 
-      // 4. Hue rotation: Rodrigues rotation around diagonal axis (1, 1, 1)/sqrt(3)
+      // 4. Hue rotation (unclamped intermediate Rodrigues rotation)
       const angle = hueRotation.mul(0.017453292519943295);
       const cosA = angle.cos();
       const sinA = angle.sin();
@@ -109,22 +107,29 @@ export const toneEffect: EffectDefinition = {
       const kCrossRgb = k.cross(rgb);
       const kDotRgb = k.dot(rgb);
 
-      const hueRotated = rgb
+      rgb = rgb
         .mul(cosA)
         .add(kCrossRgb.mul(sinA))
         .add(k.mul(kDotRgb).mul(oneMinusCos));
 
-      rgb = clamp(hueRotated, 0.0, 1.0);
+      rgb = clamp(rgb, 0.0, 1.0);
 
-      // 5. Gamma correction
-      const invGamma = gamma.reciprocal();
+      // 5. Gamma shaping
+      const invGamma = gamma.max(0.05).reciprocal();
       rgb = pow(rgb.clamp(0.0001, 1.0), vec3(invGamma));
 
-      // 6. Invert
-      const invertedRgb = vec3(1.0).sub(rgb);
-      rgb = mix(rgb, invertedRgb, invert);
+      // 6. Invert toggle
+      rgb = mix(rgb, vec3(1.0).sub(rgb), invert);
+      rgb = clamp(rgb, 0.0, 1.0);
 
-      return vec4(rgb, col.a ?? float(1.0));
+      // Convert perceptual sRGB -> Linear working light
+      const linearRGB = vec3(
+        sRGBToLinearChannel(rgb.r),
+        sRGBToLinearChannel(rgb.g),
+        sRGBToLinearChannel(rgb.b)
+      );
+
+      return vec4(linearRGB, col.a ?? float(1.0));
     })();
   },
 };

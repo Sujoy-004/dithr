@@ -4,20 +4,16 @@ import {
   vec4,
   float,
   mix,
+  fwidth,
+  smoothstep,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
-import { rec601Luminance } from '../../color/luminance';
-
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+import { rec601PerceptualLuminance } from '../../color/luminance';
+import { toNode } from '../tslHelpers';
 
 /**
  * High-Contrast Threshold binary effect definition (D-01, D-05, D-20).
- * Quantizes colors into binary 1-bit black and white based on Rec. 601 luminance.
+ * Evaluates perceptual Rec. 601 luminance with adjustable softness and fwidth() AA.
  */
 export const thresholdEffect: EffectDefinition = {
   id: 'threshold',
@@ -30,8 +26,16 @@ export const thresholdEffect: EffectDefinition = {
       type: 'float',
       min: 0.0,
       max: 1.0,
-      default: 0.5,
+      default: 0.45,
       step: 0.01,
+      audioModulatable: true,
+    },
+    softness: {
+      type: 'float',
+      min: 0.0,
+      max: 0.25,
+      default: 0.02,
+      step: 0.005,
       audioModulatable: true,
     },
     invert: {
@@ -40,16 +44,22 @@ export const thresholdEffect: EffectDefinition = {
     },
   },
   buildNode: (inputNode, uniforms) => {
-    const cutoff = toNode(uniforms.cutoff, 0.5);
+    const cutoff = toNode(uniforms.cutoff, 0.45);
+    const softness = toNode(uniforms.softness, 0.02);
     const invert = toNode(uniforms.invert, 0.0);
 
     return Fn(() => {
       const baseCol = inputNode;
-      const lum = rec601Luminance(baseCol.rgb);
+      const lum = rec601PerceptualLuminance(baseCol.rgb);
+      const aa = fwidth(lum).mul(0.5).max(0.002);
+      const halfSpread = softness.add(aa);
 
-      const isAbove = lum.greaterThanEqual(cutoff);
-      const binColor = isAbove.select(vec3(1.0), vec3(0.0));
-      const finalRGB = mix(binColor, vec3(1.0).sub(binColor), invert);
+      const t = smoothstep(cutoff.sub(halfSpread), cutoff.add(halfSpread), lum);
+      const val = mix(t, float(1.0).sub(t), invert);
+
+      const inkBg = vec3(0.003, 0.0035, 0.005); // #07080b linear
+      const chalkFg = vec3(0.88, 0.90, 0.93); // #f0f2f6 linear
+      const finalRGB = mix(inkBg, chalkFg, val);
 
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();

@@ -1,29 +1,31 @@
 import {
   Fn,
   uv,
-  vec4,
-  fract,
-  float,
   vec2,
+  vec3,
+  vec4,
+  floor,
+  fract,
+  dot,
+  mix,
+  fwidth,
+  smoothstep,
+  float,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
-
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+import { hash22Node } from '../../color/luminance';
+import { toNode, sampleWithEnv } from '../tslHelpers';
 
 /**
  * Voronoi cellular mosaic effect definition (D-01, D-20).
- * Cellular grid distance partition with configurable scale and jitter.
+ * Genuine 3x3 Worley neighbor search in pixel space with Dave Hoskins jittered seeds,
+ * flat facet sampling at the winning cell seed via env.sampleAt, and fwidth() borders.
  */
 export const voronoiEffect: EffectDefinition = {
   id: 'voronoi',
   label: 'Voronoi Mosaic',
   category: 'stylize',
-  requiresPass: false,
+  requiresPass: true,
   costWeight: 2,
   parameters: {
     scale: {
@@ -32,31 +34,78 @@ export const voronoiEffect: EffectDefinition = {
       max: 100.0,
       default: 24.0,
       step: 2.0,
+      unit: 'px',
       audioModulatable: true,
     },
     jitter: {
       type: 'float',
       min: 0.0,
       max: 1.0,
-      default: 0.8,
+      default: 0.85,
       step: 0.05,
       audioModulatable: true,
+    },
+    borderWidth: {
+      type: 'float',
+      min: 0.0,
+      max: 0.25,
+      default: 0.05,
+      step: 0.01,
     },
   },
   buildNode: (inputNode, uniforms, env) => {
     const scale = toNode(uniforms.scale, 24.0);
-    const jitter = toNode(uniforms.jitter, 0.8);
+    const jitter = toNode(uniforms.jitter, 0.85);
+    const borderWidth = toNode(uniforms.borderWidth, 0.05);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
-      const p = st.mul(resolution).div(scale.max(4.0));
-      const f = fract(p).sub(0.5);
-      const dist = f.mul(jitter.add(0.2)).length();
+      const safeRes = resolution.max(vec2(1.0, 1.0));
+      const cellSize = scale.max(4.0);
+      const p = st.mul(safeRes).div(cellSize);
+      const n = floor(p);
+      const f = fract(p);
 
-      const baseCol = inputNode;
-      const finalRGB = baseCol.rgb.mul(dist.min(1.0));
-      return vec4(finalRGB, baseCol.a ?? float(1.0));
+      let d1: any = float(100.0);
+      let d2: any = float(100.0);
+      let bestSeedPos: any = n.add(0.5);
+
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const offset = vec2(float(dx), float(dy));
+          const cell = n.add(offset);
+          const rnd = hash22Node(cell);
+          const seedInCell = mix(vec2(0.5, 0.5), rnd, jitter);
+          const pt = offset.add(seedInCell);
+          const diff = pt.sub(f);
+          const d = dot(diff, diff);
+
+          const isCloser = d.lessThan(d1);
+          const isSecond = isCloser.not().and(d.lessThan(d2));
+
+          d2 = isCloser.select(d1, isSecond.select(d, d2));
+          d1 = isCloser.select(d, d1);
+          bestSeedPos = isCloser.select(cell.add(seedInCell), bestSeedPos);
+        }
+      }
+
+      const bestUV = bestSeedPos.mul(cellSize).div(safeRes).clamp(0.001, 0.999);
+      const facetCol = sampleWithEnv(inputNode, env, bestUV);
+
+      const edgeDist = d2.max(0.0).sqrt().sub(d1.max(0.0).sqrt());
+      const aa = fwidth(edgeDist).max(0.005);
+      const borderMask = borderWidth
+        .greaterThan(0.001)
+        .select(
+          float(1.0).sub(smoothstep(borderWidth.sub(aa), borderWidth.add(aa), edgeDist)),
+          float(0.0)
+        );
+
+      const borderCol = vec3(0.004, 0.0045, 0.006);
+      const finalRGB = mix(facetCol.rgb, borderCol, borderMask);
+
+      return vec4(finalRGB, facetCol.a ?? float(1.0));
     })();
   },
 };

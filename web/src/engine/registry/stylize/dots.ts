@@ -1,30 +1,31 @@
 import {
   Fn,
   uv,
+  vec2,
+  vec3,
   vec4,
+  floor,
   fract,
   float,
-  vec2,
+  mix,
+  fwidth,
+  smoothstep,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
-import { rec601Luminance } from '../../color/luminance';
-
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+import { rec601PerceptualLuminance } from '../../color/luminance';
+import { toNode, sampleWithEnv } from '../tslHelpers';
 
 /**
  * Regular Dot Matrix Screen effect definition (D-01, D-05, D-20).
- * Grid of circular dots sized by Rec. 601 perceived luminance.
+ * Snaps to square pixel grid, samples cell-center RGB via env.sampleAt,
+ * computes area-proportional radius sqrt(lum), and applies fwidth() anti-aliasing.
  */
 export const dotsEffect: EffectDefinition = {
   id: 'dots',
   label: 'Dot Matrix Screen',
   category: 'stylize',
   requiresPass: false,
+  spatial: true,
   costWeight: 1,
   parameters: {
     spacing: {
@@ -52,16 +53,26 @@ export const dotsEffect: EffectDefinition = {
 
     return Fn(() => {
       const st = uv();
-      const pixelCoord = st.mul(resolution);
-      const cell = fract(pixelCoord.div(spacing.max(4.0))).sub(0.5);
-      const dist = cell.length();
+      const safeRes = resolution.max(vec2(1.0, 1.0));
+      const pixelCoord = st.mul(safeRes);
+      const cellSize = spacing.max(4.0);
 
-      const baseCol = inputNode;
-      const lum = rec601Luminance(baseCol.rgb);
-      const dotR = lum.mul(radius).mul(0.5);
-      const dotMask = dist.lessThanEqual(dotR).select(1.0, 0.0);
+      const cellCoord = floor(pixelCoord.div(cellSize));
+      const cellCenterUV = cellCoord.add(0.5).mul(cellSize).div(safeRes).clamp(0.001, 0.999);
+      const baseCol = sampleWithEnv(inputNode, env, cellCenterUV);
 
-      return vec4(baseCol.rgb.mul(dotMask), baseCol.a ?? float(1.0));
+      const lum = rec601PerceptualLuminance(baseCol.rgb);
+      const cellFrac = fract(pixelCoord.div(cellSize)).sub(0.5);
+      const dist = cellFrac.length();
+
+      const dotR = lum.max(0.0).sqrt().mul(0.48).mul(radius).clamp(0.0, 0.72);
+      const aa = fwidth(dist).max(0.02);
+      const dotMask = float(1.0).sub(smoothstep(dotR.sub(aa), dotR.add(aa), dist));
+
+      const housingBg = baseCol.rgb.mul(0.03).add(vec3(0.002, 0.0024, 0.003));
+      const finalRGB = mix(housingBg, baseCol.rgb, dotMask);
+
+      return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },
 };

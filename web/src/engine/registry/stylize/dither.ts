@@ -1,30 +1,32 @@
 import {
   Fn,
   uv,
+  vec2,
+  vec3,
   vec4,
   floor,
-  clamp,
+  fract,
+  dot,
   float,
-  vec2,
+  mix,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
+import { linearTosRGBChannel, sRGBToLinearChannel } from '../../color/colorSpace';
+import { toNode, resolveSelectNode, sampleWithEnv } from '../tslHelpers';
 
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+const MATRIX_TYPES = ['bayer4', 'bayer8', 'bayer2', 'ign'] as const;
 
 /**
- * Bayer 4x4 Dithering effect definition (D-01, D-20, FX-01).
- * Pointwise threshold matrix dithering with quantization steps and spread control.
+ * Ordered Dithering effect definition (D-01, D-20, FX-01).
+ * Pixel-size cell sampling via env.sampleAt, perceptual sRGB quantization,
+ * and selectable Bayer 2x2 / 4x4 / 8x8 or Interleaved Gradient Noise (IGN) matrices.
  */
 export const ditherEffect: EffectDefinition = {
   id: 'dither',
   label: 'Bayer Dither',
   category: 'stylize',
   requiresPass: false,
+  spatial: false,
   costWeight: 1,
   parameters: {
     colorSteps: {
@@ -43,42 +45,97 @@ export const ditherEffect: EffectDefinition = {
       step: 0.05,
       audioModulatable: true,
     },
+    pixelSize: {
+      type: 'float',
+      min: 1.0,
+      max: 8.0,
+      default: 2.0,
+      step: 1.0,
+      unit: 'px',
+      audioModulatable: true,
+    },
     matrixType: {
       type: 'select',
-      default: 'bayer4',
-      options: ['bayer4'],
+      default: 'bayer8',
+      options: [...MATRIX_TYPES],
+    },
+    monochrome: {
+      type: 'boolean',
+      default: false,
     },
   },
   buildNode: (inputNode, uniforms, env) => {
     const colorSteps = toNode(uniforms.colorSteps, 4.0);
     const spread = toNode(uniforms.spread, 0.5);
+    const pixelSize = toNode(uniforms.pixelSize, 2.0);
+    const matrixIdx = resolveSelectNode(uniforms.matrixType, MATRIX_TYPES, 1);
+    const monochrome = toNode(uniforms.monochrome, 0.0);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
-      const pixelCoord = floor(st.mul(resolution));
+      const safeRes = resolution.max(vec2(1.0, 1.0));
+      const pxSize = pixelSize.max(1.0);
+      const cellCoord = floor(st.mul(safeRes).div(pxSize));
+      const cellCenterUV = cellCoord.add(0.5).mul(pxSize).div(safeRes).clamp(0.001, 0.999);
 
-      const x = pixelCoord.x.mod(4.0);
-      const y = pixelCoord.y.mod(4.0);
+      const baseCol = sampleWithEnv(inputNode, env, cellCenterUV);
 
-      const x2 = floor(x.div(2.0));
-      const y2 = floor(y.div(2.0));
-      const x1 = x.mod(2.0);
-      const y1 = y.mod(2.0);
+      // Quantize in perceptual sRGB space so shadow/midtone steps remain balanced
+      const srgb = vec3(
+        linearTosRGBChannel(baseCol.r),
+        linearTosRGBChannel(baseCol.g),
+        linearTosRGBChannel(baseCol.b)
+      );
+      const lum = srgb.r.mul(0.299).add(srgb.g.mul(0.587)).add(srgb.b.mul(0.114));
+      const workRgb = mix(srgb, vec3(lum), monochrome);
 
-      const b2 = y1.mul(2.0).add(x1);
-      const b4 = y2.mul(2.0).add(x2);
-      const bVal = b4.mul(4.0).add(b2).div(16.0).sub(0.5);
+      // Recursive Bayer matrices (2x2, 4x4, 8x8) + Interleaved Gradient Noise (IGN)
+      const x = cellCoord.x.mod(8.0);
+      const y = cellCoord.y.mod(8.0);
 
-      const baseCol = inputNode;
-      const rgb = baseCol.rgb;
+      const x0 = x.mod(2.0);
+      const y0 = y.mod(2.0);
+      const b0 = x0.mul(2.0).add(y0.mul(3.0)).mod(4.0);
 
-      const ditherOffset = bVal.mul(spread);
-      const ditheredRGB = rgb.add(ditherOffset);
+      const x1 = floor(x.mod(4.0).div(2.0));
+      const y1 = floor(y.mod(4.0).div(2.0));
+      const b1 = x1.mul(2.0).add(y1.mul(3.0)).mod(4.0);
+
+      const x2 = floor(x.div(4.0));
+      const y2 = floor(y.div(4.0));
+      const b2 = x2.mul(2.0).add(y2.mul(3.0)).mod(4.0);
+
+      const bayer2 = b0.add(0.5).div(4.0);
+      const bayer4 = b0.mul(4.0).add(b1).add(0.5).div(16.0);
+      const bayer8 = b0.mul(16.0).add(b1.mul(4.0)).add(b2).add(0.5).div(64.0);
+      const ign = fract(
+        float(52.9829189).mul(fract(dot(cellCoord, vec2(0.06711056, 0.00583715))))
+      );
+
+      // 0: bayer4, 1: bayer8, 2: bayer2, 3: ign
+      const threshold01 = matrixIdx
+        .equal(float(1.0))
+        .select(
+          bayer8,
+          matrixIdx
+            .equal(float(2.0))
+            .select(bayer2, matrixIdx.equal(float(3.0)).select(ign, bayer4))
+        );
+      const bVal = threshold01.sub(0.5);
 
       const stepsMinus1 = colorSteps.sub(1.0).max(1.0);
-      const quantized = floor(ditheredRGB.mul(stepsMinus1).add(0.5)).div(stepsMinus1);
-      const finalRGB = clamp(quantized, 0.0, 1.0);
+      const ditherOffset = bVal.mul(spread).div(stepsMinus1);
+      const ditheredRGB = workRgb.add(ditherOffset);
+      const quantizedSrgb = floor(ditheredRGB.mul(stepsMinus1).add(0.5))
+        .div(stepsMinus1)
+        .clamp(0.0, 1.0);
+
+      const finalRGB = vec3(
+        sRGBToLinearChannel(quantizedSrgb.r),
+        sRGBToLinearChannel(quantizedSrgb.g),
+        sRGBToLinearChannel(quantizedSrgb.b)
+      );
 
       return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();

@@ -6,18 +6,16 @@ import {
   vec4,
   float,
   sin,
-  fract,
+  floor,
+  abs,
   clamp,
   max,
+  mix,
+  smoothstep,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
-
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+import { hash12Node, rec601PerceptualLuminance } from '../../color/luminance';
+import { toNode, sampleWithEnv } from '../tslHelpers';
 
 export type CrtVhsProfileName = 'vhsSp' | 'vhsEp' | 'crtArcade' | 'broadcastMonitor';
 
@@ -34,10 +32,6 @@ export interface CrtVhsProfileParams {
 
 /**
  * Authentic analog CRT and VHS profiles (D-09, FX-04).
- * VHS SP: clean tape playback with subtle scanlines and jitter.
- * VHS EP: worn tape playback with heavy jitter, tracking noise, and phosphor decay.
- * CRT Arcade: curved shadow mask with heavy scanlines and bloom.
- * Broadcast Monitor: crisp aperture grille with fine scanlines and subtle curvature.
  */
 export const CRT_VHS_PROFILES: Record<CrtVhsProfileName, CrtVhsProfileParams> = {
   vhsSp: {
@@ -82,16 +76,12 @@ export const CRT_VHS_PROFILES: Record<CrtVhsProfileName, CrtVhsProfileParams> = 
   },
 };
 
-/**
- * Returns parameters for a named analog profile (D-09).
- */
 export function applyCrtProfile(profileName: CrtVhsProfileName): CrtVhsProfileParams {
   return { ...CRT_VHS_PROFILES[profileName] };
 }
 
 /**
  * Computes barrel distortion and boundary detection for normalized UV [0, 1] (D-09).
- * Formula: uv' = 0.5 + (uv - 0.5) * (1 + curvature * r^2)
  */
 export function computeBarrelDistortion(
   uvCoord: { x: number; y: number },
@@ -109,9 +99,10 @@ export function computeBarrelDistortion(
 }
 
 /**
- * Advanced Analog CRT and VHS emulation effect definition (D-09, FX-04).
- * Features barrel curvature, scanline tracking jitter, phosphor decay feedback,
- * highlight bloom extraction, and analog noise.
+ * Analog CRT & VHS Emulation effect definition (D-09, FX-04).
+ * Barrel curvature with anti-aliased bezel, VHS tracking wave & head-switch tear,
+ * 3-tap horizontal chroma aberration, Nyquist-damped scanlines, Dave Hoskins noise,
+ * and 5-tap highlight phosphor bloom.
  */
 export const crtVhsEffect: EffectDefinition = {
   id: 'crtVhs',
@@ -164,6 +155,15 @@ export const crtVhsEffect: EffectDefinition = {
       step: 0.01,
       audioModulatable: true,
     },
+    aberration: {
+      type: 'float',
+      min: 0.0,
+      max: 12.0,
+      default: 2.0,
+      step: 0.5,
+      unit: 'px',
+      audioModulatable: true,
+    },
     bloomIntensity: {
       type: 'float',
       min: 0.0,
@@ -195,75 +195,108 @@ export const crtVhsEffect: EffectDefinition = {
     const scanlineCount = toNode(uniforms.scanlineCount, 480.0);
     const rawPhosphorDecay = toNode(uniforms.phosphorDecay, 0.1);
     const trackingJitter = toNode(uniforms.trackingJitter, 0.1);
+    const aberration = toNode(uniforms.aberration, 2.0);
     const bloomIntensity = toNode(uniforms.bloomIntensity, 0.15);
     const vignette = toNode(uniforms.vignette, 0.1);
     const noiseIntensity = toNode(uniforms.noiseIntensity, 0.05);
+    const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
-    // T-02-07 Mitigation: strictly clamp phosphor decay to < 0.98 to prevent runaway luminance accumulation
+    // T-02-07 / T-hlm-01: strictly clamp phosphor decay < 0.98
     const safePhosphorDecay = clamp(rawPhosphorDecay, 0.0, 0.97);
-
     const time = env?.time ?? uniforms.time ?? float(0.0);
 
     return Fn(() => {
       const st: any = uv();
+      const safeRes = resolution.max(vec2(1.0, 1.0));
 
-      // 1. CRT Barrel Distortion
+      // 1. CRT Barrel Distortion + smooth anti-aliased bezel
       const cc: any = st.sub(0.5);
       const distSq: any = cc.x.mul(cc.x).add(cc.y.mul(cc.y));
       const distFactor: any = distSq.mul(curvature).add(1.0);
       const distortedUV: any = cc.mul(distFactor).add(0.5);
 
-      const inBounds: any = distortedUV.x.greaterThanEqual(0.0)
-        .and(distortedUV.x.lessThanEqual(1.0))
-        .and(distortedUV.y.greaterThanEqual(0.0))
-        .and(distortedUV.y.lessThanEqual(1.0));
+      const edgeDist = max(abs(distortedUV.x.sub(0.5)), abs(distortedUV.y.sub(0.5)));
+      const bezelMask = float(1.0).sub(smoothstep(0.494, 0.502, edgeDist));
 
-      // 2. Tracking Jitter
-      const jitterSeed: any = distortedUV.y.mul(30.0).add(time.mul(15.0));
-      const jitterNoise: any = fract(sin(jitterSeed).mul(43758.5453)).sub(0.5);
-      const jitterOffset: any = jitterNoise.mul(trackingJitter).mul(0.02);
-      const sampleUV: any = vec2(distortedUV.x.add(jitterOffset), distortedUV.y).clamp(0.0, 1.0);
+      // 2. VHS horizontal tracking wave + line jitter + bottom head-switch tear
+      const waveOffset = sin(distortedUV.y.mul(14.0).add(time.mul(4.5)))
+        .mul(trackingJitter)
+        .mul(0.004);
+      const lineBand = floor(distortedUV.y.mul(180.0));
+      const lineRand = hash12Node(vec2(lineBand, floor(time.mul(24.0)))).sub(0.5);
+      const lineJitter = lineRand.mul(trackingJitter).mul(0.015);
+      const headSwitch = smoothstep(0.92, 0.99, float(1.0).sub(distortedUV.y))
+        .mul(trackingJitter)
+        .mul(0.025)
+        .mul(sin(time.mul(35.0)));
 
-      const sampleFn = (coord: any) => {
-        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
-        if (typeof inputNode === 'function') return inputNode(coord);
-        return inputNode;
-      };
+      const sampleUV: any = vec2(
+        distortedUV.x.add(waveOffset).add(lineJitter).add(headSwitch),
+        distortedUV.y
+      ).clamp(0.001, 0.999);
 
-      const sampledColor: any = sampleFn(sampleUV);
-      let rgb: any = sampledColor.rgb;
+      // 3. 3-tap horizontal chroma R/B aberration
+      const abOffset = aberration.div(safeRes.x);
+      const cR = sampleWithEnv(
+        inputNode,
+        env,
+        vec2(sampleUV.x.add(abOffset), sampleUV.y).clamp(0.001, 0.999)
+      );
+      const cG = sampleWithEnv(inputNode, env, sampleUV);
+      const cB = sampleWithEnv(
+        inputNode,
+        env,
+        vec2(sampleUV.x.sub(abOffset), sampleUV.y).clamp(0.001, 0.999)
+      );
+      let rgb: any = vec3(cR.r, cG.g, cB.b);
 
-      // 3. Scanline simulation
-      const scanlinePhase: any = distortedUV.y.mul(scanlineCount).add(time.mul(2.0));
-      const scanline: any = sin(scanlinePhase).mul(0.5).add(0.5);
-      const scanlineMod: any = scanlineIntensity.mul(scanline.sub(1.0)).add(1.0);
-      rgb = rgb.mul(scanlineMod);
+      // 4. Nyquist-safe scanlines
+      const scanPhase: any = distortedUV.y.mul(scanlineCount).mul(6.2831853).add(time.mul(2.0));
+      const scanVal: any = sin(scanPhase).mul(0.5).add(0.5);
+      const nyquistDamp = clamp(
+        safeRes.y.div(scanlineCount.mul(1.5).max(1.0)),
+        0.15,
+        1.0
+      );
+      const scanMod: any = mix(float(1.0), scanVal, scanlineIntensity.mul(0.8).mul(nyquistDamp));
+      rgb = rgb.mul(scanMod);
 
-      // 4. Analog tape static noise
-      const noiseSeed: any = sampleUV.x.mul(12.9898).add(sampleUV.y.mul(78.233)).add(time.mul(43.123));
-      const noiseVal: any = fract(sin(noiseSeed).mul(43758.5453)).sub(0.5);
-      rgb = rgb.add(vec3(noiseVal.mul(noiseIntensity)));
+      // 5. Dave Hoskins analog tape noise
+      const noiseCoord = vec2(
+        floor(sampleUV.x.mul(safeRes.x).mul(0.5)),
+        floor(sampleUV.y.mul(safeRes.y)).add(floor(time.mul(30.0)))
+      );
+      const noiseVal: any = hash12Node(noiseCoord).sub(0.5);
+      rgb = rgb.add(vec3(noiseVal.mul(noiseIntensity).mul(0.35)));
 
-      // 5. Highlight bloom extraction and additive combine
-      // Rec. 601 luminance: 0.299 R + 0.587 G + 0.114 B
-      const lum: any = rgb.r.mul(0.299).add(rgb.g.mul(0.587)).add(rgb.b.mul(0.114));
-      const highlight: any = lum.sub(0.7).max(0.0).mul(3.33);
-      const bloomCol: any = rgb.mul(highlight).mul(bloomIntensity);
-      rgb = rgb.add(bloomCol);
+      // 6. 5-tap highlight phosphor bloom
+      if (typeof env?.sampleAt === 'function' || typeof inputNode === 'function') {
+        const bStep = vec2(2.5).div(safeRes);
+        const b1 = sampleWithEnv(inputNode, env, sampleUV.add(vec2(bStep.x, 0.0))).rgb;
+        const b2 = sampleWithEnv(inputNode, env, sampleUV.sub(vec2(bStep.x, 0.0))).rgb;
+        const b3 = sampleWithEnv(inputNode, env, sampleUV.add(vec2(0.0, bStep.y))).rgb;
+        const b4 = sampleWithEnv(inputNode, env, sampleUV.sub(vec2(0.0, bStep.y))).rgb;
+        const bloomAvg = rgb.add(b1).add(b2).add(b3).add(b4).mul(0.2);
+        const bloomLum = rec601PerceptualLuminance(bloomAvg);
+        const highlight = bloomLum.sub(0.55).max(0.0).mul(2.2);
+        rgb = rgb.add(bloomAvg.mul(highlight).mul(bloomIntensity));
+      } else {
+        const lum: any = rgb.r.mul(0.299).add(rgb.g.mul(0.587)).add(rgb.b.mul(0.114));
+        const highlight: any = lum.sub(0.6).max(0.0).mul(2.5);
+        rgb = rgb.add(rgb.mul(highlight).mul(bloomIntensity));
+      }
 
-      // 6. Phosphor decay temporal accumulation (clamped < 0.98 per T-02-07)
+      // 7. Phosphor decay temporal accumulation (clamped < 0.98)
       if (typeof env?.previousPassTexture === 'function') {
         const prevCol: any = env.previousPassTexture(sampleUV);
         rgb = max(rgb, prevCol.rgb.mul(safePhosphorDecay));
       }
 
-      // 7. Vignette darkening towards edges
-      const vigFactor: any = clamp(float(1.0).sub(distSq.mul(vignette.mul(2.0))), 0.0, 1.0);
-      rgb = rgb.mul(vigFactor);
+      // 8. Vignette & bezel mask
+      const vigFactor: any = clamp(float(1.0).sub(distSq.mul(vignette.mul(1.8))), 0.0, 1.0);
+      rgb = rgb.mul(vigFactor).mul(bezelMask);
 
-      // Darken out of bounds
-      const finalRGB: any = inBounds.select(clamp(rgb, 0.0, 1.0), vec3(0.0));
-      return vec4(finalRGB, sampledColor.a ?? float(1.0));
+      return vec4(clamp(rgb, 0.0, 1.0), cG.a ?? float(1.0));
     })();
   },
 };

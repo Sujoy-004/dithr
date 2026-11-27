@@ -1,43 +1,48 @@
 import {
   Fn,
   uv,
+  vec2,
+  vec3,
   vec4,
+  floor,
+  fract,
+  abs,
   sin,
+  mix,
+  fwidth,
+  smoothstep,
   float,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
-
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+import { rec601PerceptualLuminance } from '../../color/luminance';
+import { toNode, sampleWithEnv } from '../tslHelpers';
 
 /**
- * Wave Lines raster distortion effect definition (D-01, D-20, D-27).
- * Sine wave raster lines with deterministic injected time uniform.
+ * Wave Lines oscilloscope modulation effect definition (D-01, D-20, D-27).
+ * Divides canvas into horizontal scanlines, samples perceptual Rec. 601 luma via env.sampleAt,
+ * modulates harmonic vertical displacement + stroke width by luminance with fwidth() AA.
  */
 export const waveLinesEffect: EffectDefinition = {
   id: 'waveLines',
   label: 'Wave Lines',
   category: 'stylize',
   requiresPass: false,
+  spatial: true,
   costWeight: 1,
   parameters: {
     frequency: {
       type: 'float',
-      min: 1.0,
-      max: 50.0,
-      default: 20.0,
+      min: 8.0,
+      max: 120.0,
+      default: 48.0,
       step: 1.0,
       audioModulatable: true,
     },
     amplitude: {
       type: 'float',
       min: 0.0,
-      max: 1.0,
-      default: 0.5,
+      max: 2.0,
+      default: 0.7,
       step: 0.05,
       audioModulatable: true,
     },
@@ -49,21 +54,50 @@ export const waveLinesEffect: EffectDefinition = {
       step: 0.1,
       audioModulatable: true,
     },
+    colorize: {
+      type: 'boolean',
+      default: true,
+    },
   },
   buildNode: (inputNode, uniforms, env) => {
-    const frequency = toNode(uniforms.frequency, 20.0);
-    const amplitude = toNode(uniforms.amplitude, 0.5);
+    const frequency = toNode(uniforms.frequency, 48.0);
+    const amplitude = toNode(uniforms.amplitude, 0.7);
     const speed = toNode(uniforms.speed, 1.0);
+    const colorize = toNode(uniforms.colorize, 1.0);
     const time = env?.time ?? uniforms.time ?? float(0.0);
+    const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
-      const wave = sin(st.y.mul(frequency).add(time.mul(speed.mul(2.0)))).mul(amplitude);
-      const waveMask = sin(st.x.mul(100.0).add(wave)).mul(0.5).add(0.5);
+      const safeRes = resolution.max(vec2(1.0, 1.0));
+      const pixelCoord = st.mul(safeRes);
 
-      const baseCol = inputNode;
-      const finalRGB = baseCol.rgb.mul(waveMask);
-      return vec4(finalRGB, baseCol.a ?? float(1.0));
+      const lineSpacing: any = safeRes.y.div(frequency.max(8.0)).max(2.0);
+      const lineIdx: any = floor(pixelCoord.y.div(lineSpacing));
+      const lineCenterY: any = lineIdx.add(0.5).mul(lineSpacing).div(safeRes.y).clamp(0.001, 0.999);
+
+      const lineCol = sampleWithEnv(inputNode, env, vec2(st.x, lineCenterY));
+      const lum = rec601PerceptualLuminance(lineCol.rgb);
+
+      const phase = pixelCoord.x
+        .mul(0.045)
+        .add(time.mul(speed.mul(3.0)))
+        .add(lineIdx.mul(0.7));
+      const carrier = sin(phase).mul(lum).mul(amplitude).mul(lineSpacing).mul(0.42);
+
+      const localY = fract(pixelCoord.y.div(lineSpacing)).sub(0.5).mul(lineSpacing);
+      const dist = abs(localY.sub(carrier));
+
+      const halfThick = mix(float(0.45), lineSpacing.mul(0.42), lum);
+      const aa = fwidth(dist).max(0.65);
+      const mask = float(1.0).sub(smoothstep(halfThick.sub(aa), halfThick.add(aa), dist));
+
+      const bgCol = vec3(0.002, 0.0024, 0.003); // #06070a linear
+      const chalk = vec3(0.84, 0.86, 0.90);
+      const fgCol = mix(chalk, lineCol.rgb, colorize);
+      const finalRGB = mix(bgCol, fgCol, mask);
+
+      return vec4(finalRGB, lineCol.a ?? float(1.0));
     })();
   },
 };

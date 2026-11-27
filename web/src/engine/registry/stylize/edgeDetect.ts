@@ -5,33 +5,32 @@ import {
   vec3,
   vec4,
   float,
+  mix,
+  smoothstep,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
-import { rec601Luminance } from '../../color/luminance';
+import { rec601PerceptualLuminance } from '../../color/luminance';
+import { toNode, resolveSelectNode, sampleWithEnv } from '../tslHelpers';
 
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+const EDGE_MODES = ['whiteOnBlack', 'blackOnWhite', 'colorEdges'] as const;
 
 /**
  * Edge Detection convolution filter effect definition (D-01, D-05, D-20).
- * Detects structural luminance discontinuities via Sobel/finite-difference gradient.
+ * Full 3x3 Sobel gradient operator over perceptual Rec. 601 luminance via env.sampleAt
+ * with noise-floor smoothstep and whiteOnBlack / blackOnWhite / colorEdges modes.
  */
 export const edgeDetectEffect: EffectDefinition = {
   id: 'edgeDetect',
   label: 'Edge Detection',
   category: 'stylize',
-  requiresPass: false,
+  requiresPass: true,
   costWeight: 2,
   parameters: {
     sensitivity: {
       type: 'float',
       min: 0.5,
       max: 10.0,
-      default: 3.0,
+      default: 2.5,
       step: 0.1,
       audioModulatable: true,
     },
@@ -43,41 +42,70 @@ export const edgeDetectEffect: EffectDefinition = {
       step: 0.5,
       unit: 'px',
     },
+    mode: {
+      type: 'select',
+      default: 'colorEdges',
+      options: [...EDGE_MODES],
+    },
   },
   buildNode: (inputNode, uniforms, env) => {
-    const sensitivity = toNode(uniforms.sensitivity, 3.0);
+    const sensitivity = toNode(uniforms.sensitivity, 2.5);
     const thickness = toNode(uniforms.thickness, 1.0);
+    const modeIdx = resolveSelectNode(uniforms.mode, EDGE_MODES, 2);
     const resolution = env?.resolution ?? uniforms.resolution ?? vec2(1920.0, 1080.0);
 
     return Fn(() => {
       const st = uv();
-      const baseCol = inputNode;
-      const baseLum = rec601Luminance(baseCol.rgb);
+      const safeRes = resolution.max(vec2(1.0, 1.0));
+      const baseCol = sampleWithEnv(inputNode, env, st);
 
-      if (typeof env?.sampleAt === 'function') {
-        const dX = vec2(thickness.div(resolution.x), 0.0);
-        const dY = vec2(0.0, thickness.div(resolution.y));
+      const step = vec2(thickness).div(safeRes);
 
-        const rightCol = env.sampleAt(st.add(dX));
-        const leftCol = env.sampleAt(st.sub(dX));
-        const upCol = env.sampleAt(st.add(dY));
-        const downCol = env.sampleAt(st.sub(dY));
+      const lumaAt = (dx: number, dy: number) => {
+        const coord = st.add(vec2(step.x.mul(dx), step.y.mul(dy))).clamp(0.001, 0.999);
+        return rec601PerceptualLuminance(sampleWithEnv(inputNode, env, coord).rgb);
+      };
 
-        const rightLum = rec601Luminance(rightCol.rgb);
-        const leftLum = rec601Luminance(leftCol.rgb);
-        const upLum = rec601Luminance(upCol.rgb);
-        const downLum = rec601Luminance(downCol.rgb);
+      const tl = lumaAt(-1, -1);
+      const tc = lumaAt(0, -1);
+      const tr = lumaAt(1, -1);
+      const ml = lumaAt(-1, 0);
+      const mr = lumaAt(1, 0);
+      const bl = lumaAt(-1, 1);
+      const bc = lumaAt(0, 1);
+      const br = lumaAt(1, 1);
 
-        const gradX = rightLum.sub(leftLum);
-        const gradY = upLum.sub(downLum);
-        const mag = gradX.mul(gradX).add(gradY.mul(gradY)).sqrt().mul(sensitivity).clamp(0.0, 1.0);
+      const gx = tr
+        .add(mr.mul(2.0))
+        .add(br)
+        .sub(tl)
+        .sub(ml.mul(2.0))
+        .sub(bl);
+      const gy = bl
+        .add(bc.mul(2.0))
+        .add(br)
+        .sub(tl)
+        .sub(tc.mul(2.0))
+        .sub(tr);
 
-        return vec4(vec3(mag), baseCol.a ?? float(1.0));
-      }
+      const rawMag = gx.mul(gx).add(gy.mul(gy)).sqrt();
+      const mag = smoothstep(0.06, 0.9, rawMag.mul(sensitivity));
 
-      // Pointwise derivative approximation fallback
-      const edge = baseLum.mul(sensitivity).fract();
-      return vec4(vec3(edge), baseCol.a ?? float(1.0));
+      const inkBg = vec3(0.003, 0.0035, 0.005);
+      const chalk = vec3(0.88, 0.90, 0.93);
+
+      const whiteOnBlack = mix(inkBg, chalk, mag);
+      const blackOnWhite = mix(chalk, inkBg, mag);
+      const colorEdges = mix(inkBg, baseCol.rgb.mul(1.35).clamp(0.0, 1.0), mag);
+
+      const finalRGB = modeIdx
+        .equal(float(0.0))
+        .select(
+          whiteOnBlack,
+          modeIdx.equal(float(1.0)).select(blackOnWhite, colorEdges)
+        );
+
+      return vec4(finalRGB, baseCol.a ?? float(1.0));
     })();
   },
 };

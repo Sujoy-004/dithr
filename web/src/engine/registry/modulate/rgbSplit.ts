@@ -9,13 +9,7 @@ import {
   sin,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
-
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+import { toNode, sampleWithEnv } from '../tslHelpers';
 
 export interface RgbSplitParams {
   masterAmount?: number;
@@ -63,20 +57,21 @@ export function computeChannelOffsets(params: RgbSplitParams = {}): ChannelOffse
 
 /**
  * Chromatic RGB Channel Separation effect definition (D-08, FX-03).
- * Samples red, green, and blue texture taps with independent coordinate displacements in linear space.
+ * Samples red, green, and blue texture taps with independent coordinate displacements via env.sampleAt.
  */
 export const rgbSplitEffect: EffectDefinition = {
   id: 'rgbSplit',
   label: 'RGB Split',
   category: 'modulate',
   requiresPass: false,
+  spatial: true,
   costWeight: 1,
   parameters: {
     masterAmount: {
       type: 'float',
       min: 0.0,
       max: 50.0,
-      default: 0.0,
+      default: 4.0,
       step: 0.5,
       unit: 'px',
       audioModulatable: true,
@@ -146,7 +141,7 @@ export const rgbSplitEffect: EffectDefinition = {
     },
   },
   buildNode: (inputNode, uniforms, env) => {
-    const masterAmount = toNode(uniforms.masterAmount, 0.0);
+    const masterAmount = toNode(uniforms.masterAmount, 4.0);
     const masterAngle = toNode(uniforms.masterAngle, 0.0);
     const redOffsetX = toNode(uniforms.redOffsetX, 0.0);
     const redOffsetY = toNode(uniforms.redOffsetY, 0.0);
@@ -158,6 +153,7 @@ export const rgbSplitEffect: EffectDefinition = {
 
     return Fn(() => {
       const st: any = uv();
+      const safeRes = resolution.max(vec2(1.0, 1.0));
       const rad: any = masterAngle.mul(float(Math.PI / 180.0));
       const masterVec: any = vec2(cos(rad), sin(rad)).mul(masterAmount);
 
@@ -165,20 +161,14 @@ export const rgbSplitEffect: EffectDefinition = {
       const netGreenOffset: any = vec2(greenOffsetX, greenOffsetY);
       const netBlueOffset: any = vec2(blueOffsetX, blueOffsetY).sub(masterVec);
 
-      const uvR: any = st.add(netRedOffset.div(resolution)).clamp(0.0, 1.0);
-      const uvG: any = st.add(netGreenOffset.div(resolution)).clamp(0.0, 1.0);
-      const uvB: any = st.add(netBlueOffset.div(resolution)).clamp(0.0, 1.0);
+      const uvR: any = st.add(netRedOffset.div(safeRes)).clamp(0.001, 0.999);
+      const uvG: any = st.add(netGreenOffset.div(safeRes)).clamp(0.001, 0.999);
+      const uvB: any = st.add(netBlueOffset.div(safeRes)).clamp(0.001, 0.999);
 
-      const sampleFn = (coord: any) => {
-        if (typeof env?.sampleAt === 'function') return env.sampleAt(coord);
-        if (typeof inputNode === 'function') return inputNode(coord);
-        return inputNode;
-      };
-
-      const rSample: any = sampleFn(uvR);
-      const gSample: any = sampleFn(uvG);
-      const bSample: any = sampleFn(uvB);
-      const baseCol: any = sampleFn(st);
+      const rSample: any = sampleWithEnv(inputNode, env, uvR);
+      const gSample: any = sampleWithEnv(inputNode, env, uvG);
+      const bSample: any = sampleWithEnv(inputNode, env, uvB);
+      const baseCol: any = sampleWithEnv(inputNode, env, st);
 
       const finalRGB: any = vec3(rSample.r, gSample.g, bSample.b);
       return vec4(finalRGB, baseCol.a ?? float(1.0));

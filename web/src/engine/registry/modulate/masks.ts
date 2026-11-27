@@ -7,16 +7,13 @@ import {
   smoothstep,
   abs,
   max,
+  min,
   mix,
 } from 'three/tsl';
 import type { EffectDefinition } from '../types';
+import { toNode, resolveSelectNode } from '../tslHelpers';
 
-function toNode(val: any, fallback = 0.0): any {
-  if (val === undefined || val === null) return float(fallback);
-  if (typeof val === 'number') return float(val);
-  if (typeof val === 'boolean') return float(val ? 1.0 : 0.0);
-  return val;
-}
+const MASK_SHAPES = ['vignette', 'box', 'circle'] as const;
 
 export interface MaskParams {
   shape?: 'vignette' | 'box' | 'circle';
@@ -61,7 +58,6 @@ export function computeMaskValue(x: number, y: number, params: MaskParams = {}):
     const outer = feather * 0.5;
     rawMask = smoothstepJs(outer, inner, dist);
   } else {
-    // circle or vignette
     const dx = x - centerX;
     const dy = y - centerY;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -76,7 +72,7 @@ export function computeMaskValue(x: number, y: number, params: MaskParams = {}):
 
 /**
  * Procedural Spatial Masks effect definition (D-07, FX-03).
- * Vignette, box, and circular distance fields with smoothstep feather falloff.
+ * Aspect-corrected circle & vignette SDFs when resolution is provided, plus box SDF.
  */
 export const masksEffect: EffectDefinition = {
   id: 'masks',
@@ -88,7 +84,7 @@ export const masksEffect: EffectDefinition = {
     shape: {
       type: 'select',
       default: 'vignette',
-      options: ['vignette', 'box', 'circle'],
+      options: [...MASK_SHAPES],
     },
     centerX: {
       type: 'float',
@@ -151,7 +147,8 @@ export const masksEffect: EffectDefinition = {
       audioModulatable: true,
     },
   },
-  buildNode: (inputNode, uniforms) => {
+  buildNode: (inputNode, uniforms, env) => {
+    const shapeIdx = resolveSelectNode(uniforms.shape, MASK_SHAPES, 0);
     const centerX = toNode(uniforms.centerX, 0.5);
     const centerY = toNode(uniforms.centerY, 0.5);
     const width = toNode(uniforms.width, 0.8);
@@ -160,50 +157,43 @@ export const masksEffect: EffectDefinition = {
     const feather = toNode(uniforms.feather, 0.2);
     const invert = toNode(uniforms.invert, 0.0);
     const strength = toNode(uniforms.strength, 1.0);
+    const resolution = env?.resolution ?? uniforms.resolution;
 
     return Fn(() => {
       const st: any = uv();
       const center: any = vec2(centerX, centerY);
+      const rawDelta: any = st.sub(center);
+
+      // Aspect-correct circular/vignette distance when resolution is available
+      const radialDelta: any = resolution
+        ? rawDelta.mul(resolution).div(min(resolution.x, resolution.y).max(1.0))
+        : rawDelta;
 
       // Circle SDF
-      const circleDist: any = st.sub(center).length();
+      const circleDist: any = radialDelta.length();
       const circleInner: any = radius.sub(feather.mul(0.5)).max(0.0);
       const circleOuter: any = radius.add(feather.mul(0.5));
       const circleMask: any = smoothstep(circleOuter, circleInner, circleDist);
 
       // Box SDF
       const halfSize: any = vec2(width, height).mul(0.5);
-      const boxD: any = abs(st.sub(center)).sub(halfSize);
+      const boxD: any = abs(rawDelta).sub(halfSize);
       const boxDist: any = max(boxD.x, boxD.y);
       const boxInner: any = feather.mul(-0.5);
       const boxOuter: any = feather.mul(0.5);
       const boxMask: any = smoothstep(boxOuter, boxInner, boxDist);
 
-      // Vignette SDF
-      const vigDist: any = st.sub(center).length();
+      // Vignette SDF (gentle radial falloff)
+      const vigDist: any = radialDelta.length();
       const vigInner: any = radius.sub(feather.mul(0.5)).max(0.0);
       const vigOuter: any = radius.add(feather.mul(0.5));
       const vigMask: any = smoothstep(vigOuter, vigInner, vigDist);
 
-      let rawMask: any;
-      if (uniforms.shape === 'box') {
-        rawMask = boxMask;
-      } else if (uniforms.shape === 'circle') {
-        rawMask = circleMask;
-      } else if (uniforms.shape === 'vignette') {
-        rawMask = vigMask;
-      } else {
-        const shapeNode: any = toNode(uniforms.shape, 0.0);
-        rawMask = shapeNode.equal(float(1.0)).select(
-          boxMask,
-          shapeNode.equal(float(2.0)).select(circleMask, vigMask)
-        );
-      }
+      const rawMask: any = shapeIdx
+        .equal(float(1.0))
+        .select(boxMask, shapeIdx.equal(float(2.0)).select(circleMask, vigMask));
 
-      // Invert flag
       const effMask: any = mix(rawMask, float(1.0).sub(rawMask), invert);
-
-      // Strength attenuation
       const finalMask: any = mix(float(1.0), effMask, strength);
 
       const baseCol: any = inputNode;
